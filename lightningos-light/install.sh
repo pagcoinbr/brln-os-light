@@ -9,7 +9,7 @@ LND_VERSION="${LND_VERSION:-0.20.0-beta}"
 LND_URL_DEFAULT="https://github.com/lightningnetwork/lnd/releases/download/v${LND_VERSION}/lnd-linux-amd64-v${LND_VERSION}.tar.gz"
 LND_URL="${LND_URL:-$LND_URL_DEFAULT}"
 
-GO_VERSION="${GO_VERSION:-1.21.13}"
+GO_VERSION="${GO_VERSION:-1.22.7}"
 GO_TARBALL_URL="https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
 
 CURRENT_STEP=""
@@ -104,7 +104,7 @@ install_go() {
     current=$(go version | awk '{print $3}' | sed 's/go//')
     major=$(echo "$current" | cut -d. -f1)
     minor=$(echo "$current" | cut -d. -f2)
-    if [[ "$major" -gt 1 || ( "$major" -eq 1 && "$minor" -ge 21 ) ]]; then
+    if [[ "$major" -gt 1 || ( "$major" -eq 1 && "$minor" -ge 22 ) ]]; then
       export PATH="/usr/local/go/bin:$PATH"
       print_ok "Go already installed ($current)"
       return
@@ -304,15 +304,11 @@ install_manager() {
   mkdir -p /opt/lightningos/go /opt/lightningos/go-cache /opt/lightningos/go/pkg/mod
 
   print_step "Ensuring protobuf version"
-  (cd "$REPO_ROOT" && env $go_env GOFLAGS=-mod=mod go mod edit -require=google.golang.org/protobuf@v1.35.2)
+  (cd "$REPO_ROOT" && env $go_env GOFLAGS=-mod=mod go mod edit -require=google.golang.org/protobuf@v1.35.2 -replace=google.golang.org/protobuf=google.golang.org/protobuf@v1.35.2)
   print_ok "Protobuf version ensured"
 
   print_step "Downloading Go modules"
-  if [[ -f "$REPO_ROOT/go.sum" ]]; then
-    (cd "$REPO_ROOT" && env $go_env GOFLAGS=-mod=readonly go mod download)
-  else
-    (cd "$REPO_ROOT" && env $go_env GOFLAGS=-mod=mod go mod download)
-  fi
+  (cd "$REPO_ROOT" && env $go_env GOFLAGS=-mod=mod go mod tidy)
   print_ok "Go modules ready"
 
   print_step "Compiling LightningOS Manager"

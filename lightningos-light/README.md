@@ -19,7 +19,7 @@ LightningOS Light is a local-only Lightning node manager with a guided wizard, d
 ## Install (Ubuntu Server)
 The installer provisions everything needed on a clean Ubuntu box:
 - Postgres, smartmontools, curl, jq, ca-certificates, openssl, build tools
-- Go 1.21.x and Node.js 18.x (if missing or too old)
+- Go 1.22.x and Node.js 18.x (if missing or too old)
 - LND binaries (default `v0.20.0-beta`)
 - LightningOS Manager binary (compiled locally)
 - UI build (compiled locally)

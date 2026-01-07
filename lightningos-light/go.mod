@@ -1,6 +1,6 @@
 module lightningos-light
 
-go 1.21
+go 1.22
 
 require (
   github.com/go-chi/chi/v5 v5.0.10
@@ -11,3 +11,5 @@ require (
   google.golang.org/grpc v1.64.0
   google.golang.org/protobuf v1.35.2
 )
+
+replace google.golang.org/protobuf => google.golang.org/protobuf v1.35.2
