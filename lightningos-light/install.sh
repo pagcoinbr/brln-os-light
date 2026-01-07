@@ -47,7 +47,7 @@ psql_exec() {
   local out
   if ! out=$(psql_as_postgres -v ON_ERROR_STOP=1 "$@" 2>&1); then
     print_warn "$label failed: $out"
-    exit 1
+    return 1
   fi
 }
 
