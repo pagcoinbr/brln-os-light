@@ -299,6 +299,10 @@ install_manager() {
     return
   fi
 
+  print_step "Downloading Go modules"
+  (cd "$REPO_ROOT" && go mod download)
+  print_ok "Go modules downloaded"
+
   (cd "$REPO_ROOT" && go build -o /opt/lightningos/manager/lightningos-manager ./cmd/lightningos-manager)
   print_ok "Manager built and installed"
 }
