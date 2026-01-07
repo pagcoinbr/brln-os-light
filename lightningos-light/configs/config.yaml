@@ -1,0 +1,26 @@
+server:
+  host: "127.0.0.1"
+  port: 8443
+  tls_cert: "./configs/tls/server.crt"
+  tls_key: "./configs/tls/server.key"
+
+lnd:
+  grpc_host: "127.0.0.1:10009"
+  tls_cert_path: "/var/lib/lnd/tls.cert"
+  admin_macaroon_path: "/var/lib/lnd/data/chain/bitcoin/mainnet/admin.macaroon"
+
+bitcoin_remote:
+  rpchost: "bitcoin.br-ln.com:8085"
+  zmq_rawblock: "tcp://bitcoin.br-ln.com:28332"
+  zmq_rawtx: "tcp://bitcoin.br-ln.com:28333"
+
+postgres:
+  db_name: "lnd"
+
+ui:
+  static_dir: "./ui/dist"
+
+features:
+  enable_login: false
+  enable_bitcoin_local_placeholder: true
+  enable_app_store_placeholder: true

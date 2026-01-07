@@ -1,0 +1,16 @@
+# Go
+/bin/
+/tmp/
+*.exe
+*.out
+*.test
+
+# Node
+ui/node_modules/
+ui/dist/
+
+# Configs
+configs/tls/
+
+# Logs
+*.log

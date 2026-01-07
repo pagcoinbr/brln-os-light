@@ -1,0 +1,30 @@
+package server
+
+import (
+  "net/http"
+  "time"
+)
+
+func (s *Server) requestLogger() func(http.Handler) http.Handler {
+  return func(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+      start := time.Now()
+      ww := &responseWriter{ResponseWriter: w, status: 200}
+
+      next.ServeHTTP(ww, r)
+
+      duration := time.Since(start)
+      s.logger.Printf("method=%s path=%s status=%d duration_ms=%d", r.Method, r.URL.Path, ww.status, duration.Milliseconds())
+    })
+  }
+}
+
+type responseWriter struct {
+  http.ResponseWriter
+  status int
+}
+
+func (w *responseWriter) WriteHeader(status int) {
+  w.status = status
+  w.ResponseWriter.WriteHeader(status)
+}
