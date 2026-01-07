@@ -158,19 +158,30 @@ postgres_setup() {
   fi
   local db_user="lndpg"
   local db_name="lnd"
-  local existing
-  if ! existing=$(psql_as_postgres -tAc "select 1 from pg_roles where rolname='${db_user}'" 2>&1); then
-    print_warn "PostgreSQL access failed: $existing"
+  local role_exists db_exists
+  if ! role_exists=$(psql_as_postgres -tAc "select 1 from pg_roles where rolname='${db_user}'" 2>&1); then
+    print_warn "PostgreSQL access failed: $role_exists"
     print_warn "Try: systemctl status postgresql --no-pager"
     exit 1
   fi
-  if [[ "$existing" != "1" ]]; then
+  role_exists=$(echo "$role_exists" | tr -d '[:space:]')
+  if ! db_exists=$(psql_as_postgres -tAc "select 1 from pg_database where datname='${db_name}'" 2>&1); then
+    print_warn "PostgreSQL access failed: $db_exists"
+    print_warn "Try: systemctl status postgresql --no-pager"
+    exit 1
+  fi
+  db_exists=$(echo "$db_exists" | tr -d '[:space:]')
+
+  if [[ "$role_exists" != "1" ]]; then
     local pw
     pw=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 24)
     psql_as_postgres -c "create role ${db_user} with login password '${pw}'"
-    psql_as_postgres -c "create database ${db_name} owner ${db_user}"
     update_dsn "$db_user" "$pw" "$db_name"
-  else
+  fi
+  if [[ "$db_exists" != "1" ]]; then
+    psql_as_postgres -c "create database ${db_name} owner ${db_user}"
+  fi
+  if [[ "$role_exists" == "1" ]]; then
     ensure_dsn "$db_user" "$db_name"
   fi
   print_ok "PostgreSQL ready"
