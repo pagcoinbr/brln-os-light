@@ -300,10 +300,10 @@ install_manager() {
   fi
 
   print_step "Downloading Go modules"
-  (cd "$REPO_ROOT" && go mod download)
-  print_ok "Go modules downloaded"
+  (cd "$REPO_ROOT" && GOFLAGS=-mod=mod go mod tidy)
+  print_ok "Go modules ready"
 
-  (cd "$REPO_ROOT" && go build -o /opt/lightningos/manager/lightningos-manager ./cmd/lightningos-manager)
+  (cd "$REPO_ROOT" && GOFLAGS=-mod=mod go build -o /opt/lightningos/manager/lightningos-manager ./cmd/lightningos-manager)
   print_ok "Manager built and installed"
 }
 
