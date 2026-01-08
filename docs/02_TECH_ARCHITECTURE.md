@@ -35,7 +35,7 @@
 - /opt/lightningos/manager (binário)
 - /opt/lightningos/ui (build SPA)
 - /etc/lightningos/config.yaml
-- /etc/lightningos/secrets.env (600 root-only)
+- /etc/lightningos/secrets.env (660 root:lightningos)
 - /var/lib/lightningos/state.db (opcional)
 - /var/log/lightningos/manager.log
 

@@ -34,7 +34,7 @@ Quer UI bonita mas também quer acessar logs e aprender com o sistema.
 - Passo 1: “Conectar ao Bitcoin remoto”
   - Solicitar rpcuser e rpcpass
   - Testar RPC e ZMQ
-  - Salvar com segurança (arquivo root-only ou secrets store local)
+  - Salvar com segurança (arquivo root:lightningos 660 ou secrets store local)
 - Passo 2: “Wallet do LND”
   - Escolha: Criar nova wallet / Importar wallet
   - Criar: gerar seed, mostrar 24 palavras UMA VEZ, exigir confirmação do usuário (“eu anotei”)

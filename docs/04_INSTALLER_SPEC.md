@@ -26,6 +26,7 @@ Instalar e configurar:
 - useradd --system --home /home/lnd --shell /usr/sbin/nologin lnd
 - useradd --system --home /var/lib/lightningos --shell /usr/sbin/nologin lightningos
 - criar /data/lnd e ajustar owner para lnd
+- adicionar `lightningos` ao grupo `lnd` para leitura de tls/macaroon
 
 3) Instalar pacotes:
 - apt update

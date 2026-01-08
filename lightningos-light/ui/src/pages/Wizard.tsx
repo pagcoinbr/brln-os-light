@@ -29,10 +29,6 @@ export default function Wizard() {
       setBitcoinHost(data.rpchost)
       setZmqBlock(data.zmq_rawblock)
       setZmqTx(data.zmq_rawtx)
-      if (data?.rpc_ok) {
-        setStatus(formatBitcoinInfo(data))
-        setStatusTone('success')
-      }
     }).catch(() => null)
   }, [])
 
@@ -49,22 +45,23 @@ export default function Wizard() {
     if (!info) {
       return 'RPC OK.'
     }
-    const chain = info.chain || 'main'
-    const blocks = typeof info.blocks === 'number' ? info.blocks : info.blocks ?? 'n/a'
-    return `RPC OK. ${chain} @ ${blocks} (${syncLabel(info)})`
+    if (
+      typeof info.blocks === 'number'
+      && typeof info.verification_progress === 'number'
+      && info.chain
+    ) {
+      return `RPC OK. ${info.chain} @ ${info.blocks} (${syncLabel(info)})`
+    }
+    return 'RPC OK.'
   }
 
   const handleBitcoin = async () => {
     setStatus('Testing connection...')
     setStatusTone('warn')
     try {
-      const res = await postBitcoinRemote({ rpcuser: rpcUser, rpcpass: rpcPass })
-      const info = res?.info
-      if (info) {
-        setStatus(formatBitcoinInfo(info))
-      } else {
-        setStatus('RPC OK.')
-      }
+      await postBitcoinRemote({ rpcuser: rpcUser, rpcpass: rpcPass })
+      const updated = await getBitcoin()
+      setStatus(formatBitcoinInfo(updated))
       setStatusTone('success')
       next()
     } catch (err: any) {

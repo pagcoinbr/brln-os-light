@@ -10,7 +10,7 @@
 
 ## Padrões
 - Config: YAML em /etc/lightningos/config.yaml
-- Secrets: /etc/lightningos/secrets.env (root-only)
+- Secrets: /etc/lightningos/secrets.env (root:lightningos, 660)
 - Logs: /var/log/lightningos/ (json ou texto estruturado)
 - UI build: /opt/lightningos/ui
 

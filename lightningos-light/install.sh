@@ -95,6 +95,18 @@ ensure_user() {
   fi
 }
 
+ensure_group_member() {
+  local user="$1"
+  local group="$2"
+  if ! getent group "$group" >/dev/null 2>&1; then
+    groupadd --system "$group"
+  fi
+  if id -nG "$user" | tr ' ' '\n' | grep -qx "$group"; then
+    return
+  fi
+  usermod -a -G "$group" "$user"
+}
+
 install_packages() {
   print_step "Installing base packages"
   apt-get update
@@ -158,6 +170,10 @@ prepare_lnd_data_dir() {
     fi
   fi
   chown -R lnd:lnd /data/lnd /var/log/lnd
+  if [[ ! -e /home/lnd/.lnd ]]; then
+    ln -s /data/lnd /home/lnd/.lnd
+    chown -h lnd:lnd /home/lnd/.lnd
+  fi
   print_ok "LND data directory ready"
 }
 
@@ -165,6 +181,10 @@ fix_permissions() {
   print_step "Fixing permissions"
   chown root:lightningos /etc/lightningos /etc/lightningos/tls
   chmod 750 /etc/lightningos /etc/lightningos/tls
+  if [[ -d /etc/lnd ]]; then
+    chown root:lnd /etc/lnd
+    chmod 750 /etc/lnd
+  fi
   if [[ -f /etc/lightningos/config.yaml ]]; then
     chown root:lightningos /etc/lightningos/config.yaml
     chmod 640 /etc/lightningos/config.yaml
@@ -182,12 +202,20 @@ fix_permissions() {
     chmod 660 /etc/lightningos/secrets.env
   fi
   if [[ -f /etc/lnd/lnd.conf ]]; then
-    chown root:lightningos /etc/lnd/lnd.conf
+    chown root:lnd /etc/lnd/lnd.conf
     chmod 664 /etc/lnd/lnd.conf
   fi
   if [[ -f /etc/lnd/lnd.user.conf ]]; then
-    chown root:lightningos /etc/lnd/lnd.user.conf
+    chown root:lnd /etc/lnd/lnd.user.conf
     chmod 664 /etc/lnd/lnd.user.conf
+  fi
+  if [[ -f /data/lnd/tls.cert ]]; then
+    chown lnd:lnd /data/lnd/tls.cert
+    chmod 640 /data/lnd/tls.cert
+  fi
+  if [[ -f /data/lnd/data/chain/bitcoin/mainnet/admin.macaroon ]]; then
+    chown lnd:lnd /data/lnd/data/chain/bitcoin/mainnet/admin.macaroon
+    chmod 640 /data/lnd/data/chain/bitcoin/mainnet/admin.macaroon
   fi
   chown -R lightningos:lightningos /var/lib/lightningos /var/log/lightningos
   print_ok "Permissions updated"
@@ -203,7 +231,7 @@ copy_templates() {
     chown root:lightningos /etc/lightningos/secrets.env
     chmod 660 /etc/lightningos/secrets.env
   fi
-  if [[ ! -f /etc/lnd/lnd.conf ]]; then
+  if [[ ! -s /etc/lnd/lnd.conf ]]; then
     cp "$REPO_ROOT/templates/lnd.conf" /etc/lnd/lnd.conf
     chmod 664 /etc/lnd/lnd.conf
   fi
@@ -220,6 +248,27 @@ migrate_lnd_paths() {
       sed -i 's#/var/lib/lnd#/data/lnd#g' /etc/lightningos/config.yaml
       print_ok "Updated LND paths in /etc/lightningos/config.yaml"
     fi
+  fi
+}
+
+validate_lnd_conf() {
+  if [[ ! -f /etc/lnd/lnd.conf ]]; then
+    print_warn "/etc/lnd/lnd.conf missing"
+    return
+  fi
+  if command -v runuser >/dev/null 2>&1; then
+    if ! runuser -u lnd -- test -r /etc/lnd/lnd.conf; then
+      print_warn "lnd.conf not readable by user lnd"
+    fi
+  fi
+  if ! grep -q '^bitcoin.mainnet=1' /etc/lnd/lnd.conf; then
+    print_warn "lnd.conf missing bitcoin.mainnet=1"
+  fi
+  if ! grep -q '^bitcoin.active=1' /etc/lnd/lnd.conf; then
+    print_warn "lnd.conf missing bitcoin.active=1"
+  fi
+  if ! grep -q '^bitcoin.node=bitcoind' /etc/lnd/lnd.conf; then
+    print_warn "lnd.conf missing bitcoin.node=bitcoind"
   fi
 }
 
@@ -288,7 +337,7 @@ update_dsn() {
   else
     echo "LND_PG_DSN=${dsn}" >> /etc/lightningos/secrets.env
   fi
-  chmod 600 /etc/lightningos/secrets.env
+  chmod 660 /etc/lightningos/secrets.env
 
   if ! grep -q '^db.postgres.dsn=' /etc/lnd/lnd.conf; then
     echo "db.postgres.dsn=${dsn}" >> /etc/lnd/lnd.conf
@@ -471,6 +520,8 @@ install_systemd() {
   systemctl enable --now postgresql
   systemctl enable --now lnd
   systemctl enable --now lightningos-manager
+  systemctl restart lnd >/dev/null 2>&1 || true
+  systemctl restart lightningos-manager >/dev/null 2>&1 || true
   print_ok "Services enabled and started"
 }
 
@@ -530,6 +581,7 @@ main() {
   print_step "LightningOS Light installation starting"
   ensure_user lnd /home/lnd
   ensure_user lightningos /var/lib/lightningos
+  ensure_group_member lightningos lnd
   install_packages
   install_go
   install_node
@@ -537,6 +589,7 @@ main() {
   prepare_lnd_data_dir
   copy_templates
   migrate_lnd_paths
+  validate_lnd_conf
   fix_permissions
   postgres_setup
   install_lnd
