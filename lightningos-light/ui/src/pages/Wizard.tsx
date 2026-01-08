@@ -110,8 +110,8 @@ export default function Wizard() {
       setStatus('Wallet initialized.')
       setStatusTone('success')
       next()
-    } catch {
-      setStatus('Wallet init failed.')
+    } catch (err: any) {
+      setStatus(err?.message || 'Wallet init failed.')
       setStatusTone('error')
     }
   }
@@ -129,8 +129,8 @@ export default function Wizard() {
       setStatus('Unlocked.')
       setStatusTone('success')
       next()
-    } catch {
-      setStatus('Unlock failed.')
+    } catch (err: any) {
+      setStatus(err?.message || 'Unlock failed.')
       setStatusTone('error')
     }
   }

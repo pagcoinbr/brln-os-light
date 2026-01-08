@@ -36,6 +36,13 @@ print_warn() {
   echo "[WARN] $1"
 }
 
+strip_crlf() {
+  local target="$1"
+  if [[ -f "$target" ]]; then
+    sed -i 's/\r$//' "$target"
+  fi
+}
+
 trap 'echo ""; echo "Installation failed during: ${CURRENT_STEP:-unknown}"; echo "Last command: $BASH_COMMAND"; echo "Check: systemctl status postgresql --no-pager"; echo "Also: journalctl -u postgresql -n 50 --no-pager"; exit 1' ERR
 
 psql_as_postgres() {
@@ -179,6 +186,11 @@ prepare_lnd_data_dir() {
     ln -s "$LND_DIR" /home/lnd/.lnd
     chown -h lnd:lnd /home/lnd/.lnd
   fi
+  if [[ ! -f "$LND_DIR/password.txt" ]]; then
+    touch "$LND_DIR/password.txt"
+    chown lnd:lnd "$LND_DIR/password.txt"
+    chmod 660 "$LND_DIR/password.txt"
+  fi
   print_ok "LND data directory ready"
 }
 
@@ -214,6 +226,10 @@ fix_permissions() {
     chown lnd:lnd "$LND_DIR/tls.cert"
     chmod 640 "$LND_DIR/tls.cert"
   fi
+  if [[ -f "$LND_DIR/password.txt" ]]; then
+    chown lnd:lnd "$LND_DIR/password.txt"
+    chmod 660 "$LND_DIR/password.txt"
+  fi
   if [[ -f "$LND_DIR/data/chain/bitcoin/mainnet/admin.macaroon" ]]; then
     chown lnd:lnd "$LND_DIR/data/chain/bitcoin/mainnet/admin.macaroon"
     chmod 640 "$LND_DIR/data/chain/bitcoin/mainnet/admin.macaroon"
@@ -242,6 +258,9 @@ copy_templates() {
     chown lnd:lnd "$LND_USER_CONF"
     chmod 660 "$LND_USER_CONF"
   fi
+  strip_crlf /etc/lightningos/config.yaml
+  strip_crlf "$LND_CONF"
+  strip_crlf "$LND_USER_CONF"
   print_ok "Templates copied"
 }
 

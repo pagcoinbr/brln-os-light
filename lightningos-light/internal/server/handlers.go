@@ -24,6 +24,7 @@ const (
   secretsPath = "/etc/lightningos/secrets.env"
   lndConfPath = "/data/lnd/lnd.conf"
   lndUserConfPath = "/data/lnd/lnd.user.conf"
+  lndPasswordPath = "/data/lnd/password.txt"
 )
 
 type healthIssue struct {
@@ -397,6 +398,11 @@ func (s *Server) handleInitWallet(w http.ResponseWriter, r *http.Request) {
     writeError(w, http.StatusInternalServerError, "init wallet failed")
     return
   }
+  if err := storeWalletUnlock(req.WalletPassword); err != nil {
+    s.logger.Printf("wallet unlock setup failed: %v", err)
+    writeError(w, http.StatusInternalServerError, "wallet unlock setup failed")
+    return
+  }
 
   writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -419,6 +425,11 @@ func (s *Server) handleUnlockWallet(w http.ResponseWriter, r *http.Request) {
 
   if err := s.lnd.UnlockWallet(ctx, req.WalletPassword); err != nil {
     writeError(w, http.StatusInternalServerError, "unlock failed")
+    return
+  }
+  if err := storeWalletUnlock(req.WalletPassword); err != nil {
+    s.logger.Printf("wallet unlock setup failed: %v", err)
+    writeError(w, http.StatusInternalServerError, "wallet unlock setup failed")
     return
   }
 
@@ -641,6 +652,12 @@ func buildLNDUserConf(alias string, minChanSize int64, maxChanSize int64) string
     buf.WriteString(strconv.FormatInt(maxChanSize, 10))
     buf.WriteString("\n")
   }
+  if walletPasswordAvailable() {
+    buf.WriteString("wallet-unlock-password-file=")
+    buf.WriteString(lndPasswordPath)
+    buf.WriteString("\n")
+    buf.WriteString("wallet-unlock-allow-create=true\n")
+  }
   return buf.String()
 }
 
@@ -648,7 +665,7 @@ func writeUserConf(content string) error {
   if err := os.MkdirAll(filepath.Dir(lndUserConfPath), 0750); err != nil {
     return err
   }
-  return os.WriteFile(lndUserConfPath, []byte(content), 0664)
+  return os.WriteFile(lndUserConfPath, []byte(content), 0660)
 }
 
 func (s *Server) handleWalletSummary(w http.ResponseWriter, r *http.Request) {
@@ -907,5 +924,100 @@ func updateLNDConfRPC(user, pass string) error {
     }
   }
 
-  return os.WriteFile(lndConfPath, []byte(strings.Join(lines, "\n")), 0664)
+  return os.WriteFile(lndConfPath, []byte(strings.Join(lines, "\n")), 0660)
+}
+
+func storeWalletUnlock(password string) error {
+  trimmed := strings.TrimSpace(password)
+  if trimmed == "" {
+    return errors.New("wallet password required")
+  }
+  if err := storeWalletPassword(trimmed); err != nil {
+    return err
+  }
+  return ensureWalletUnlockConfig()
+}
+
+func storeWalletPassword(password string) error {
+  if _, err := os.Stat(lndPasswordPath); err != nil {
+    if os.IsNotExist(err) {
+      return fmt.Errorf("password file missing: %s", lndPasswordPath)
+    }
+    return err
+  }
+  return os.WriteFile(lndPasswordPath, []byte(password), 0660)
+}
+
+func walletPasswordAvailable() bool {
+  info, err := os.Stat(lndPasswordPath)
+  if err != nil || info.Size() == 0 {
+    return false
+  }
+  content, err := os.ReadFile(lndPasswordPath)
+  if err != nil {
+    return false
+  }
+  return strings.TrimSpace(string(content)) != ""
+}
+
+func ensureWalletUnlockConfig() error {
+  if err := os.MkdirAll(filepath.Dir(lndUserConfPath), 0750); err != nil {
+    return err
+  }
+  raw, _ := os.ReadFile(lndUserConfPath)
+  updated := ensureUnlockLines(string(raw))
+  return os.WriteFile(lndUserConfPath, []byte(updated), 0660)
+}
+
+func ensureUnlockLines(raw string) string {
+  lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+  start := -1
+  end := len(lines)
+
+  for i, line := range lines {
+    trimmed := strings.TrimSpace(line)
+    if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+      if strings.EqualFold(trimmed, "[Application Options]") {
+        start = i
+        continue
+      }
+      if start != -1 && i > start {
+        end = i
+        break
+      }
+    }
+  }
+
+  if start == -1 {
+    lines = append(lines, "[Application Options]")
+    start = len(lines) - 1
+    end = len(lines)
+  }
+
+  hasPass := false
+  hasAllow := false
+  for i := start + 1; i < end; i++ {
+    trimmed := strings.TrimSpace(lines[i])
+    if strings.HasPrefix(trimmed, "wallet-unlock-password-file=") {
+      lines[i] = "wallet-unlock-password-file=" + lndPasswordPath
+      hasPass = true
+    }
+    if strings.HasPrefix(trimmed, "wallet-unlock-allow-create=") {
+      lines[i] = "wallet-unlock-allow-create=true"
+      hasAllow = true
+    }
+  }
+
+  extra := []string{}
+  if !hasPass {
+    extra = append(extra, "wallet-unlock-password-file="+lndPasswordPath)
+  }
+  if !hasAllow {
+    extra = append(extra, "wallet-unlock-allow-create=true")
+  }
+  if len(extra) > 0 {
+    lines = append(lines[:end], append(extra, lines[end:]...)...)
+  }
+
+  return strings.Join(lines, "\n")
 }
