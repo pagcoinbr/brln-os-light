@@ -763,7 +763,7 @@ func doBitcoinRPC(ctx context.Context, url, user, pass string) ([]byte, error) {
 
   req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf))
   if err != nil {
-    return false, err
+    return nil, err
   }
   req.SetBasicAuth(user, pass)
   req.Header.Set("Content-Type", "application/json")
