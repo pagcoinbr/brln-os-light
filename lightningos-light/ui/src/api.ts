@@ -10,7 +10,18 @@ async function request(path: string, options?: RequestInit) {
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(text || 'Request failed')
+    if (text) {
+      try {
+        const payload = JSON.parse(text)
+        if (payload && typeof payload.error === 'string') {
+          throw new Error(payload.error)
+        }
+      } catch {
+        // fall through to raw text
+      }
+      throw new Error(text)
+    }
+    throw new Error('Request failed')
   }
   if (res.status === 204) return null
   return res.json()

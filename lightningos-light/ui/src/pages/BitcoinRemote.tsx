@@ -19,8 +19,8 @@ export default function BitcoinRemote() {
       const updated = await getBitcoin()
       setStatus(updated)
       setRpcPass('')
-    } catch {
-      setMessage('Validation failed. Check credentials.')
+    } catch (err: any) {
+      setMessage(err?.message || 'Validation failed. Check credentials.')
     }
   }
 

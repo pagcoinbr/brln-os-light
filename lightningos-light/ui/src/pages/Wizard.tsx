@@ -40,7 +40,7 @@ export default function Wizard() {
       setStatus('Saved. RPC OK.')
       next()
     } catch (err: any) {
-      setStatus('Failed to validate RPC. Check credentials.')
+      setStatus(err?.message || 'Failed to validate RPC. Check credentials.')
     }
   }
 
