@@ -23,7 +23,7 @@
 4) LND
 - Binário instalado no sistema
 - Config em /etc/lnd/lnd.conf (preferido)
-- Dados em /var/lib/lnd (ou /home/lnd/.lnd conforme setup)
+- Dados em /data/lnd (ou /home/lnd/.lnd conforme setup)
 - gRPC apenas localhost
 
 ## Usuários do sistema

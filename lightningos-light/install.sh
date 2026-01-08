@@ -88,6 +88,11 @@ ensure_user() {
   if ! id "$user" >/dev/null 2>&1; then
     useradd --system --home "$home" --shell /usr/sbin/nologin "$user"
   fi
+  if [[ -n "$home" && ! -d "$home" ]]; then
+    mkdir -p "$home"
+    chown "$user:$user" "$home"
+    chmod 750 "$home"
+  fi
 }
 
 install_packages() {
@@ -137,10 +142,23 @@ install_node() {
 
 ensure_dirs() {
   print_step "Preparing directories"
-  mkdir -p /etc/lightningos /etc/lightningos/tls /etc/lnd /opt/lightningos/manager /opt/lightningos/ui /var/lib/lightningos /var/log/lightningos
+  mkdir -p /etc/lightningos /etc/lightningos/tls /etc/lnd /opt/lightningos/manager /opt/lightningos/ui /var/lib/lightningos /var/log/lightningos /var/log/lnd
   chmod 750 /etc/lightningos
   chmod 750 /var/lib/lightningos
   print_ok "Directories ready"
+}
+
+prepare_lnd_data_dir() {
+  print_step "Preparing LND data directory"
+  mkdir -p /data /data/lnd /var/log/lnd
+  if [[ -d /var/lib/lnd && -n "$(ls -A /var/lib/lnd 2>/dev/null)" ]]; then
+    if [[ -d /data/lnd && -z "$(ls -A /data/lnd 2>/dev/null)" ]]; then
+      print_warn "Existing /var/lib/lnd detected; copying data to /data/lnd"
+      cp -a /var/lib/lnd/. /data/lnd/
+    fi
+  fi
+  chown -R lnd:lnd /data/lnd /var/log/lnd
+  print_ok "LND data directory ready"
 }
 
 fix_permissions() {
@@ -194,6 +212,15 @@ copy_templates() {
     chmod 664 /etc/lnd/lnd.user.conf
   fi
   print_ok "Templates copied"
+}
+
+migrate_lnd_paths() {
+  if [[ -f /etc/lightningos/config.yaml ]]; then
+    if grep -q "/var/lib/lnd" /etc/lightningos/config.yaml; then
+      sed -i 's#/var/lib/lnd#/data/lnd#g' /etc/lightningos/config.yaml
+      print_ok "Updated LND paths in /etc/lightningos/config.yaml"
+    fi
+  fi
 }
 
 postgres_setup() {
@@ -501,13 +528,15 @@ verify_manager_listener() {
 main() {
   require_root
   print_step "LightningOS Light installation starting"
-  ensure_user lnd /var/lib/lnd
+  ensure_user lnd /home/lnd
   ensure_user lightningos /var/lib/lightningos
   install_packages
   install_go
   install_node
   ensure_dirs
+  prepare_lnd_data_dir
   copy_templates
+  migrate_lnd_paths
   fix_permissions
   postgres_setup
   install_lnd

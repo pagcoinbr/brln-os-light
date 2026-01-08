@@ -59,8 +59,9 @@ See `DEVELOPMENT.md` for local dev setup and build instructions.
 
 ## Configuration paths
 - `/etc/lightningos/config.yaml`
-- `/etc/lightningos/secrets.env` (chmod 600)
+- `/etc/lightningos/secrets.env` (chmod 660)
 - `/etc/lnd/lnd.conf` and `/etc/lnd/lnd.user.conf`
+- `/data/lnd` (LND data dir)
 
 ## Security notes
 - The seed phrase is never stored. It is displayed once in the wizard.

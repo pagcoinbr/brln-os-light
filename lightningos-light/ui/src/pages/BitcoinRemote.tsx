@@ -6,6 +6,7 @@ export default function BitcoinRemote() {
   const [rpcUser, setRpcUser] = useState('')
   const [rpcPass, setRpcPass] = useState('')
   const [message, setMessage] = useState('')
+  const [messageTone, setMessageTone] = useState<'neutral' | 'success' | 'warn' | 'error'>('neutral')
 
   const syncLabel = (info: any) => {
     if (!info || typeof info.verification_progress !== 'number') {
@@ -20,14 +21,17 @@ export default function BitcoinRemote() {
 
   const handleSave = async () => {
     setMessage('Saving...')
+    setMessageTone('warn')
     try {
       await postBitcoinRemote({ rpcuser: rpcUser, rpcpass: rpcPass })
       setMessage('Saved. RPC OK.')
+      setMessageTone('success')
       const updated = await getBitcoin()
       setStatus(updated)
       setRpcPass('')
     } catch (err: any) {
       setMessage(err?.message || 'Validation failed. Check credentials.')
+      setMessageTone('error')
     }
   }
 
@@ -54,20 +58,22 @@ export default function BitcoinRemote() {
             <p>{status?.zmq_rawblock_ok && status?.zmq_rawtx_ok ? 'OK' : 'CHECK'}</p>
           </div>
         </div>
-        <div className="grid gap-4 lg:grid-cols-3 text-sm">
-          <div>
-            <p className="text-fog/60">Chain</p>
-            <p>{status?.chain || 'n/a'}</p>
+        {status?.rpc_ok && (
+          <div className="grid gap-4 lg:grid-cols-3 text-sm">
+            <div>
+              <p className="text-fog/60">Chain</p>
+              <p>{status?.chain || 'n/a'}</p>
+            </div>
+            <div>
+              <p className="text-fog/60">Blocks</p>
+              <p>{status?.blocks ?? 'n/a'}</p>
+            </div>
+            <div>
+              <p className="text-fog/60">Sync</p>
+              <p>{syncLabel(status)}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-fog/60">Blocks</p>
-            <p>{status?.blocks ?? 'n/a'}</p>
-          </div>
-          <div>
-            <p className="text-fog/60">Sync</p>
-            <p>{syncLabel(status)}</p>
-          </div>
-        </div>
+        )}
       </div>
 
       <div className="section-card space-y-4">
@@ -77,7 +83,17 @@ export default function BitcoinRemote() {
           <input className="input-field" placeholder="RPC password" type="password" value={rpcPass} onChange={(e) => setRpcPass(e.target.value)} />
         </div>
         <button className="btn-primary" onClick={handleSave}>Save</button>
-        {message && <p className="text-sm text-brass">{message}</p>}
+        {message && (
+          <p className={`text-sm ${
+            messageTone === 'success'
+              ? 'text-glow'
+              : messageTone === 'error'
+                ? 'text-ember'
+                : messageTone === 'warn'
+                  ? 'text-brass'
+                  : 'text-fog/60'
+          }`}>{message}</p>
+        )}
       </div>
     </section>
   )

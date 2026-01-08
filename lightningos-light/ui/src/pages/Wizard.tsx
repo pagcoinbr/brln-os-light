@@ -14,7 +14,6 @@ export default function Wizard() {
   const [bitcoinHost, setBitcoinHost] = useState('')
   const [zmqBlock, setZmqBlock] = useState('')
   const [zmqTx, setZmqTx] = useState('')
-  const [bitcoinInfo, setBitcoinInfo] = useState<any>(null)
   const [walletMode, setWalletMode] = useState<'create' | 'import'>('create')
   const [walletPassword, setWalletPassword] = useState('')
   const [walletPasswordConfirm, setWalletPasswordConfirm] = useState('')
@@ -23,13 +22,17 @@ export default function Wizard() {
   const [ackSeed, setAckSeed] = useState(false)
   const [unlockPass, setUnlockPass] = useState('')
   const [status, setStatus] = useState('')
+  const [statusTone, setStatusTone] = useState<'neutral' | 'success' | 'warn' | 'error'>('neutral')
 
   useEffect(() => {
     getBitcoin().then((data: any) => {
       setBitcoinHost(data.rpchost)
       setZmqBlock(data.zmq_rawblock)
       setZmqTx(data.zmq_rawtx)
-      setBitcoinInfo(data)
+      if (data?.rpc_ok) {
+        setStatus(formatBitcoinInfo(data))
+        setStatusTone('success')
+      }
     }).catch(() => null)
   }, [])
 
@@ -42,76 +45,96 @@ export default function Wizard() {
     return `${(info.verification_progress * 100).toFixed(2)}%`
   }
 
+  const formatBitcoinInfo = (info: any) => {
+    if (!info) {
+      return 'RPC OK.'
+    }
+    const chain = info.chain || 'main'
+    const blocks = typeof info.blocks === 'number' ? info.blocks : info.blocks ?? 'n/a'
+    return `RPC OK. ${chain} @ ${blocks} (${syncLabel(info)})`
+  }
+
   const handleBitcoin = async () => {
     setStatus('Testing connection...')
+    setStatusTone('warn')
     try {
       const res = await postBitcoinRemote({ rpcuser: rpcUser, rpcpass: rpcPass })
       const info = res?.info
       if (info) {
-        setBitcoinInfo(info)
-        setStatus(`RPC OK. ${info.chain || 'main'} @ ${info.blocks ?? 'n/a'} (${syncLabel(info)})`)
+        setStatus(formatBitcoinInfo(info))
       } else {
-        setStatus('Saved. RPC OK.')
+        setStatus('RPC OK.')
       }
+      setStatusTone('success')
       next()
     } catch (err: any) {
       setStatus(err?.message || 'Failed to validate RPC. Check credentials.')
+      setStatusTone('error')
     }
   }
 
   const handleGenerateSeed = async () => {
-    if ((walletPassword || walletPasswordConfirm) && walletPassword !== walletPasswordConfirm) {
-      setStatus('Wallet password mismatch.')
-      return
-    }
     setStatus('Generating seed...')
+    setStatusTone('warn')
     try {
       const res = await createWalletSeed()
       setSeedWords(res.seed_words || [])
       setStatus('Seed generated. Write it down.')
+      setStatusTone('success')
     } catch (err: any) {
       setStatus(err?.message || 'Seed generation failed.')
+      setStatusTone('error')
     }
   }
 
   const handleInitWallet = async () => {
     if (!walletPassword || walletPassword !== walletPasswordConfirm) {
       setStatus('Wallet password mismatch.')
+      setStatusTone('error')
       return
     }
 
     const words = walletMode === 'create' ? seedWords : seedInput.trim().split(/\s+/)
     if (words.length < 12) {
       setStatus('Seed words invalid.')
+      setStatusTone('error')
       return
     }
     if (walletMode === 'create' && !ackSeed) {
       setStatus('Confirm that you wrote down the seed.')
+      setStatusTone('error')
       return
     }
 
     setStatus('Initializing wallet...')
+    setStatusTone('warn')
     try {
       await initWallet({ wallet_password: walletPassword, seed_words: words })
       setStatus('Wallet initialized.')
+      setStatusTone('success')
       next()
     } catch {
       setStatus('Wallet init failed.')
+      setStatusTone('error')
     }
   }
 
   const handleUnlock = async () => {
     if (!unlockPass) {
       setStatus('Enter wallet password.')
+      setStatusTone('error')
       return
     }
     setStatus('Unlocking...')
+    setStatusTone('warn')
     try {
       await unlockWallet({ wallet_password: unlockPass })
       setStatus('Unlocked.')
+      setStatusTone('success')
       next()
     } catch {
       setStatus('Unlock failed.')
+      setStatusTone('error')
     }
   }
 
@@ -120,7 +143,17 @@ export default function Wizard() {
       <div className="section-card">
         <h2 className="text-2xl font-semibold">Welcome wizard</h2>
         <p className="text-fog/60 mt-2">Follow the guided setup for Bitcoin remote, LND wallet, and unlock.</p>
-        {status && <p className="mt-4 text-sm text-brass">{status}</p>}
+        {status && (
+          <p className={`mt-4 text-sm ${
+            statusTone === 'success'
+              ? 'text-glow'
+              : statusTone === 'error'
+                ? 'text-ember'
+                : statusTone === 'warn'
+                  ? 'text-brass'
+                  : 'text-fog/60'
+          }`}>{status}</p>
+        )}
       </div>
 
       {step === 1 && (
@@ -138,20 +171,6 @@ export default function Wizard() {
             <div>
               <p className="uppercase text-xs">ZMQ Raw Tx</p>
               <p>{zmqTx || 'tcp://bitcoin.br-ln.com:28333'}</p>
-            </div>
-          </div>
-          <div className="grid gap-4 lg:grid-cols-3 text-sm text-fog/60">
-            <div>
-              <p className="uppercase text-xs">Chain</p>
-              <p>{bitcoinInfo?.chain || 'n/a'}</p>
-            </div>
-            <div>
-              <p className="uppercase text-xs">Blocks</p>
-              <p>{bitcoinInfo?.blocks ?? 'n/a'}</p>
-            </div>
-            <div>
-              <p className="uppercase text-xs">Sync</p>
-              <p>{syncLabel(bitcoinInfo)}</p>
             </div>
           </div>
           <div className="grid gap-4 lg:grid-cols-2">

@@ -6,8 +6,8 @@ server:
 
 lnd:
   grpc_host: "127.0.0.1:10009"
-  tls_cert_path: "/var/lib/lnd/tls.cert"
-  admin_macaroon_path: "/var/lib/lnd/data/chain/bitcoin/mainnet/admin.macaroon"
+  tls_cert_path: "/data/lnd/tls.cert"
+  admin_macaroon_path: "/data/lnd/data/chain/bitcoin/mainnet/admin.macaroon"
 
 bitcoin_remote:
   rpchost: "bitcoin.br-ln.com:8085"

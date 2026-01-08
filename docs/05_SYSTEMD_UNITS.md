@@ -12,7 +12,7 @@ Wants=network-online.target
 User=lnd
 Group=lnd
 Type=simple
-ExecStart=/usr/local/bin/lnd --configfile=/etc/lnd/lnd.conf --configfile=/etc/lnd/lnd.user.conf
+ExecStart=/usr/local/bin/lnd --lnddir=/data/lnd --configfile=/etc/lnd/lnd.conf --configfile=/etc/lnd/lnd.user.conf
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
@@ -22,7 +22,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/var/lib/lnd /var/log/lnd /etc/lnd
+ReadWritePaths=/data/lnd /var/log/lnd /etc/lnd
 # Se precisar acessar /home/lnd/.lnd, ajustar paths.
 
 [Install]

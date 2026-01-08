@@ -23,8 +23,9 @@ Instalar e configurar:
 ## Etapas do instalador (script)
 1) Verificar OS + arquitetura
 2) Criar usuários:
-- useradd --system --home /var/lib/lnd --shell /usr/sbin/nologin lnd
+- useradd --system --home /home/lnd --shell /usr/sbin/nologin lnd
 - useradd --system --home /var/lib/lightningos --shell /usr/sbin/nologin lightningos
+- criar /data/lnd e ajustar owner para lnd
 
 3) Instalar pacotes:
 - apt update
@@ -34,7 +35,7 @@ Instalar e configurar:
 - criar role `lndpg` com senha aleatória
 - criar db `lnd`
 - grants mínimos
-- salvar DSN em `/etc/lightningos/secrets.env` (chmod 600, root)
+- salvar DSN em `/etc/lightningos/secrets.env` (chmod 660, root:lightningos)
 
 5) Instalar LND binário:
 - baixar release oficial (URL param)

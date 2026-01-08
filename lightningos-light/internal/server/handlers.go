@@ -185,6 +185,15 @@ func (s *Server) handleBitcoin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) bitcoinStatus(ctx context.Context) (bitcoinStatus, error) {
   rpcUser := os.Getenv("BITCOIN_RPC_USER")
   rpcPass := os.Getenv("BITCOIN_RPC_PASS")
+  if rpcUser == "" || rpcPass == "" {
+    fileUser, filePass := readBitcoinSecrets()
+    if rpcUser == "" {
+      rpcUser = fileUser
+    }
+    if rpcPass == "" {
+      rpcPass = filePass
+    }
+  }
   status := bitcoinStatus{
     Mode: "remote",
     RPCHost: s.cfg.BitcoinRemote.RPCHost,
@@ -211,6 +220,24 @@ func (s *Server) bitcoinStatus(ctx context.Context) (bitcoinStatus, error) {
   status.ZMQRawTxOk = testTCP(s.cfg.BitcoinRemote.ZMQRawTx)
 
   return status, nil
+}
+
+func readBitcoinSecrets() (string, string) {
+  content, err := os.ReadFile(secretsPath)
+  if err != nil {
+    return "", ""
+  }
+  var user string
+  var pass string
+  for _, line := range strings.Split(string(content), "\n") {
+    if strings.HasPrefix(line, "BITCOIN_RPC_USER=") {
+      user = strings.TrimPrefix(line, "BITCOIN_RPC_USER=")
+    }
+    if strings.HasPrefix(line, "BITCOIN_RPC_PASS=") {
+      pass = strings.TrimPrefix(line, "BITCOIN_RPC_PASS=")
+    }
+  }
+  return strings.TrimSpace(user), strings.TrimSpace(pass)
 }
 
 func testTCP(addr string) bool {

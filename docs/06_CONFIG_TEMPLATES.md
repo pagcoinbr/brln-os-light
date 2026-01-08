@@ -11,8 +11,8 @@ server:
 
 lnd:
   grpc_host: "127.0.0.1:10009"
-  tls_cert_path: "/var/lib/lnd/tls.cert"
-  admin_macaroon_path: "/var/lib/lnd/data/chain/bitcoin/mainnet/admin.macaroon"
+  tls_cert_path: "/data/lnd/tls.cert"
+  admin_macaroon_path: "/data/lnd/data/chain/bitcoin/mainnet/admin.macaroon"
   # OBS: paths podem variar. Garantir que o instalador padronize.
 
 bitcoin_remote:
