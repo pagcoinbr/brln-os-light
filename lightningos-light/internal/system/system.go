@@ -237,8 +237,15 @@ func RunCommand(ctx context.Context, name string, args ...string) (string, error
   return string(out), nil
 }
 
+func systemctlPath() string {
+  if path, err := exec.LookPath("systemctl"); err == nil {
+    return path
+  }
+  return "systemctl"
+}
+
 func SystemctlIsActive(ctx context.Context, service string) bool {
-  out, err := RunCommand(ctx, "systemctl", "is-active", service)
+  out, err := RunCommand(ctx, systemctlPath(), "is-active", service)
   if err != nil {
     return false
   }
@@ -246,8 +253,19 @@ func SystemctlIsActive(ctx context.Context, service string) bool {
 }
 
 func SystemctlRestart(ctx context.Context, service string) error {
-  _, err := RunCommand(ctx, "systemctl", "restart", service)
-  return err
+  systemctl := systemctlPath()
+  _, err := RunCommand(ctx, systemctl, "restart", service)
+  if err == nil {
+    return nil
+  }
+  sudoPath, sudoErr := exec.LookPath("sudo")
+  if sudoErr != nil {
+    return err
+  }
+  if _, sudoErr = RunCommand(ctx, sudoPath, "-n", systemctl, "restart", service); sudoErr == nil {
+    return nil
+  }
+  return fmt.Errorf("systemctl restart failed: %w; sudo restart failed: %v", err, sudoErr)
 }
 
 func JournalTail(ctx context.Context, service string, lines int) ([]string, error) {

@@ -24,6 +24,7 @@ const (
   secretsPath = "/etc/lightningos/secrets.env"
   lndConfPath = "/data/lnd/lnd.conf"
   lndPasswordPath = "/data/lnd/password.txt"
+  lndWalletDBPath = "/data/lnd/data/chain/bitcoin/mainnet/wallet.db"
 )
 
 type healthIssue struct {
@@ -316,7 +317,9 @@ func (s *Server) handleWizardBitcoinRemote(w http.ResponseWriter, r *http.Reques
     writeError(w, http.StatusBadRequest, "invalid json")
     return
   }
-  if strings.TrimSpace(req.RPCUser) == "" || strings.TrimSpace(req.RPCPass) == "" {
+  user := strings.TrimSpace(req.RPCUser)
+  pass := strings.TrimSpace(req.RPCPass)
+  if user == "" || pass == "" {
     writeError(w, http.StatusBadRequest, "rpcuser and rpcpass required")
     return
   }
@@ -324,7 +327,7 @@ func (s *Server) handleWizardBitcoinRemote(w http.ResponseWriter, r *http.Reques
   ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
   defer cancel()
 
-  info, err := fetchBitcoinInfo(ctx, s.cfg.BitcoinRemote.RPCHost, req.RPCUser, req.RPCPass)
+  info, err := fetchBitcoinInfo(ctx, s.cfg.BitcoinRemote.RPCHost, user, pass)
   if err != nil {
     msg := "bitcoin rpc check failed"
     msg = fmt.Sprintf("bitcoin rpc check failed: %v", err)
@@ -333,13 +336,19 @@ func (s *Server) handleWizardBitcoinRemote(w http.ResponseWriter, r *http.Reques
     return
   }
 
-  if err := storeBitcoinSecrets(req.RPCUser, req.RPCPass); err != nil {
+  if err := storeBitcoinSecrets(user, pass); err != nil {
     s.logger.Printf("failed to store secrets: %v", err)
     writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to store secrets: %v", err))
     return
   }
 
-  if err := updateLNDConfRPC(req.RPCUser, req.RPCPass); err != nil {
+  if err := updateLNDConfRPC(
+    user,
+    pass,
+    s.cfg.BitcoinRemote.RPCHost,
+    s.cfg.BitcoinRemote.ZMQRawBlock,
+    s.cfg.BitcoinRemote.ZMQRawTx,
+  ); err != nil {
     writeError(w, http.StatusInternalServerError, "failed to update lnd.conf")
     return
   }
@@ -359,13 +368,15 @@ func (s *Server) handleCreateWallet(w http.ResponseWriter, r *http.Request) {
     return
   }
 
+  if walletExists() {
+    writeError(w, http.StatusConflict, "wallet already exists")
+    return
+  }
+
   ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
   defer cancel()
 
   seedPassphrase := strings.TrimSpace(req.SeedPassphrase)
-  if seedPassphrase == "" {
-    seedPassphrase = strings.TrimSpace(req.WalletPassword)
-  }
   seed, err := s.lnd.GenSeed(ctx, seedPassphrase)
   if err != nil {
     s.logger.Printf("gen seed failed: %v", err)
@@ -374,6 +385,14 @@ func (s *Server) handleCreateWallet(w http.ResponseWriter, r *http.Request) {
   }
 
   writeJSON(w, http.StatusOK, map[string]any{"seed_words": seed})
+}
+
+func walletExists() bool {
+  info, err := os.Stat(lndWalletDBPath)
+  if err != nil {
+    return false
+  }
+  return info.Size() > 0
 }
 
 func (s *Server) handleInitWallet(w http.ResponseWriter, r *http.Request) {
@@ -919,6 +938,8 @@ func testBitcoinRPC(ctx context.Context, host, user, pass string) (bool, error) 
 }
 
 func storeBitcoinSecrets(user, pass string) error {
+  user = strings.TrimSpace(user)
+  pass = strings.TrimSpace(pass)
   _ = os.Setenv("BITCOIN_RPC_USER", user)
   _ = os.Setenv("BITCOIN_RPC_PASS", pass)
   content, _ := os.ReadFile(secretsPath)
@@ -953,24 +974,82 @@ func storeBitcoinSecrets(user, pass string) error {
   return os.WriteFile(secretsPath, []byte(strings.Join(lines, "\n")), 0660)
 }
 
-func updateLNDConfRPC(user, pass string) error {
+func updateLNDConfRPC(user, pass, host, zmqBlock, zmqTx string) error {
   content, err := os.ReadFile(lndConfPath)
   if err != nil {
     return err
   }
 
-  if !bytes.Contains(content, []byte("bitcoind.rpcuser")) {
-    return errors.New("lnd.conf missing bitcoind rpcuser")
+  raw := strings.ReplaceAll(string(content), "\r\n", "\n")
+  lines := strings.Split(raw, "\n")
+
+  start := -1
+  end := len(lines)
+  for i, line := range lines {
+    trimmed := strings.TrimSpace(line)
+    if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+      if strings.EqualFold(trimmed, "[Bitcoind]") {
+        start = i
+        continue
+      }
+      if start != -1 && i > start {
+        end = i
+        break
+      }
+    }
   }
 
-  lines := strings.Split(string(content), "\n")
-  for i, line := range lines {
-    if strings.HasPrefix(strings.TrimSpace(line), "bitcoind.rpcuser") {
-      lines[i] = "bitcoind.rpcuser=" + user
+  if start == -1 {
+    lines = append(lines, "[Bitcoind]")
+    start = len(lines) - 1
+    end = len(lines)
+  }
+
+  updates := map[string]string{
+    "bitcoind.rpcuser": user,
+    "bitcoind.rpcpass": pass,
+  }
+  if strings.TrimSpace(host) != "" {
+    updates["bitcoind.rpchost"] = host
+  }
+  if strings.TrimSpace(zmqBlock) != "" {
+    updates["bitcoind.zmqpubrawblock"] = zmqBlock
+  }
+  if strings.TrimSpace(zmqTx) != "" {
+    updates["bitcoind.zmqpubrawtx"] = zmqTx
+  }
+
+  seen := map[string]bool{}
+  for i := start + 1; i < end; i++ {
+    trimmed := strings.TrimSpace(lines[i])
+    if trimmed == "" {
+      continue
     }
-    if strings.HasPrefix(strings.TrimSpace(line), "bitcoind.rpcpass") {
-      lines[i] = "bitcoind.rpcpass=" + pass
+    for strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+      trimmed = strings.TrimSpace(strings.TrimLeft(trimmed, "#;"))
     }
+    parts := strings.SplitN(trimmed, "=", 2)
+    if len(parts) != 2 {
+      continue
+    }
+    key := strings.TrimSpace(parts[0])
+    value, ok := updates[key]
+    if !ok {
+      continue
+    }
+    lines[i] = key + "=" + value
+    seen[key] = true
+  }
+
+  extra := []string{}
+  for key, value := range updates {
+    if seen[key] {
+      continue
+    }
+    extra = append(extra, key+"="+value)
+  }
+  if len(extra) > 0 {
+    lines = append(lines[:end], append(extra, lines[end:]...)...)
   }
 
   return os.WriteFile(lndConfPath, []byte(strings.Join(lines, "\n")), 0660)

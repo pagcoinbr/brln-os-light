@@ -35,21 +35,22 @@ export default function Wizard() {
   const next = () => setStep((prev) => Math.min(prev + 1, 4))
 
   const syncLabel = (info: any) => {
-    if (!info || typeof info.verification_progress !== 'number') {
+    const progress = info?.verification_progress ?? info?.verificationprogress
+    if (typeof progress !== 'number') {
       return 'n/a'
     }
-    return `${(info.verification_progress * 100).toFixed(2)}%`
+    return `${(progress * 100).toFixed(2)}%`
   }
 
-  const formatBitcoinInfo = (info: any) => {
+  const formatBitcoinInfo = (info: any, rpcOk?: boolean) => {
+    const ok = rpcOk ?? info?.rpc_ok ?? false
+    if (!ok) {
+      return 'RPC validation failed. Check credentials.'
+    }
     if (!info) {
       return 'RPC OK.'
     }
-    if (
-      typeof info.blocks === 'number'
-      && typeof info.verification_progress === 'number'
-      && info.chain
-    ) {
+    if (typeof info.blocks === 'number' && info.chain) {
       return `RPC OK. ${info.chain} @ ${info.blocks} (${syncLabel(info)})`
     }
     return 'RPC OK.'
@@ -59,10 +60,17 @@ export default function Wizard() {
     setStatus('Testing connection...')
     setStatusTone('warn')
     try {
-      await postBitcoinRemote({ rpcuser: rpcUser, rpcpass: rpcPass })
-      const updated = await getBitcoin()
-      setStatus(formatBitcoinInfo(updated))
+      const res: any = await postBitcoinRemote({ rpcuser: rpcUser, rpcpass: rpcPass })
+      setStatus(formatBitcoinInfo(res?.info, true))
       setStatusTone('success')
+      setRpcPass('')
+      getBitcoin()
+        .then((updated: any) => {
+          setBitcoinHost(updated.rpchost)
+          setZmqBlock(updated.zmq_rawblock)
+          setZmqTx(updated.zmq_rawtx)
+        })
+        .catch(() => null)
       next()
     } catch (err: any) {
       setStatus(err?.message || 'Failed to validate RPC. Check credentials.')

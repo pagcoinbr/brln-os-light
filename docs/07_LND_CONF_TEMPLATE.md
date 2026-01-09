@@ -43,7 +43,6 @@ num-restricted-slots=100
 
 # Bitcoin (mainnet only)
 [Bitcoin]
-bitcoin.active=1
 bitcoin.mainnet=1
 bitcoin.node=bitcoind
 bitcoin.basefee=1000

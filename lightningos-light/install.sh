@@ -105,6 +105,30 @@ ensure_user() {
   fi
 }
 
+create_lnd_user() {
+  print_step "Ensuring user lnd"
+  if id lnd >/dev/null 2>&1; then
+    local home shell
+    home=$(getent passwd lnd | cut -d: -f6)
+    shell=$(getent passwd lnd | cut -d: -f7)
+    if [[ "$home" != "/home/lnd" ]]; then
+      usermod -d /home/lnd -m lnd
+    fi
+    if [[ "$shell" != "/bin/bash" ]]; then
+      usermod -s /bin/bash lnd
+    fi
+  else
+    if command -v adduser >/dev/null 2>&1; then
+      adduser --disabled-password --gecos "" lnd
+    else
+      useradd -m -d /home/lnd -s /bin/bash lnd
+    fi
+  fi
+  ensure_group_member lnd bitcoin
+  ensure_group_member lnd debian-tor
+  print_ok "User lnd ready"
+}
+
 ensure_group_member() {
   local user="$1"
   local group="$2"
@@ -117,10 +141,25 @@ ensure_group_member() {
   usermod -a -G "$group" "$user"
 }
 
+configure_sudoers() {
+  print_step "Configuring sudoers"
+  local systemctl_path
+  systemctl_path=$(command -v systemctl || true)
+  if [[ -z "$systemctl_path" ]]; then
+    print_warn "systemctl not found; skipping sudoers setup"
+    return
+  fi
+  cat > /etc/sudoers.d/lightningos <<EOF
+lightningos ALL=NOPASSWD: ${systemctl_path} restart lnd, ${systemctl_path} restart lightningos-manager, ${systemctl_path} restart postgresql
+EOF
+  chmod 440 /etc/sudoers.d/lightningos
+  print_ok "Sudoers configured"
+}
+
 install_packages() {
   print_step "Installing base packages"
   apt-get update
-  apt-get install -y postgresql smartmontools curl jq ca-certificates openssl build-essential git
+  apt-get install -y postgresql smartmontools curl jq ca-certificates openssl build-essential git sudo tor
   print_ok "Base packages installed"
 }
 
@@ -259,19 +298,27 @@ validate_lnd_conf() {
       print_warn "lnd.conf not readable by user lnd"
     fi
   fi
-  if ! grep -q '^bitcoin.mainnet=1' "$LND_CONF"; then
+  if grep -Eq '^[[:space:]]*bitcoin\.active[[:space:]]*=' "$LND_CONF"; then
+    print_warn "lnd.conf has deprecated bitcoin.active (remove it)"
+  fi
+  if ! grep -Eq '^[[:space:]]*bitcoin\.mainnet[[:space:]]*=[[:space:]]*(1|true)[[:space:]]*$' "$LND_CONF"; then
     print_warn "lnd.conf missing bitcoin.mainnet=1"
   fi
-  if ! grep -q '^bitcoin.active=1' "$LND_CONF"; then
-    print_warn "lnd.conf missing bitcoin.active=1"
-  fi
-  if ! grep -q '^bitcoin.node=bitcoind' "$LND_CONF"; then
+  if ! grep -Eq '^[[:space:]]*bitcoin\.node[[:space:]]*=[[:space:]]*bitcoind[[:space:]]*$' "$LND_CONF"; then
     print_warn "lnd.conf missing bitcoin.node=bitcoind"
   fi
   if ! grep -q '^db.postgres.dsn=' "$LND_CONF"; then
     print_warn "lnd.conf missing db.postgres.dsn"
   elif grep -q '^db.postgres.dsn=.*CHANGE_ME' "$LND_CONF"; then
     print_warn "lnd.conf has placeholder db.postgres.dsn"
+  fi
+}
+
+warn_existing_wallet() {
+  local wallet_db="$LND_DIR/data/chain/bitcoin/mainnet/wallet.db"
+  if [[ -f "$wallet_db" ]]; then
+    print_warn "Wallet database already exists at $wallet_db"
+    print_warn "Wizard 'Create new' will fail. Use Unlock, or move /data/lnd for a clean install."
   fi
 }
 
@@ -538,6 +585,7 @@ install_systemd() {
   strip_crlf /etc/systemd/system/lightningos-manager.service
   systemctl daemon-reload
   systemctl enable --now postgresql
+  systemctl enable --now tor >/dev/null 2>&1 || true
   systemctl enable --now lnd
   systemctl enable --now lightningos-manager
   systemctl restart lnd >/dev/null 2>&1 || true
@@ -599,9 +647,10 @@ verify_manager_listener() {
 main() {
   require_root
   print_step "LightningOS Light installation starting"
-  ensure_user lnd /home/lnd
+  create_lnd_user
   ensure_user lightningos /var/lib/lightningos
   ensure_group_member lightningos lnd
+  configure_sudoers
   install_packages
   install_go
   install_node
@@ -609,6 +658,7 @@ main() {
   prepare_lnd_data_dir
   copy_templates
   validate_lnd_conf
+  warn_existing_wallet
   fix_permissions
   postgres_setup
   install_lnd

@@ -51,7 +51,6 @@ Restart=on-failure
 RestartSec=3
 LimitNOFILE=65536
 
-NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
