@@ -4,9 +4,12 @@ import (
   "context"
   "crypto/x509"
   "encoding/hex"
+  "errors"
   "fmt"
+  "io"
   "log"
   "os"
+  "strconv"
   "strings"
   "time"
 
@@ -261,9 +264,188 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
   return items, nil
 }
 
+func (c *Client) ListChannels(ctx context.Context) ([]ChannelInfo, error) {
+  conn, err := c.dial(ctx, true)
+  if err != nil {
+    return nil, err
+  }
+  defer conn.Close()
+
+  client := lnrpc.NewLightningClient(conn)
+
+  resp, err := client.ListChannels(ctx, &lnrpc.ListChannelsRequest{PeerAliasLookup: true})
+  if err != nil {
+    return nil, err
+  }
+
+  channels := make([]ChannelInfo, 0, len(resp.Channels))
+  for _, ch := range resp.Channels {
+    channels = append(channels, ChannelInfo{
+      ChannelPoint: ch.ChannelPoint,
+      ChannelID: ch.ChanId,
+      RemotePubkey: ch.RemotePubkey,
+      PeerAlias: ch.PeerAlias,
+      Active: ch.Active,
+      Private: ch.Private,
+      CapacitySat: ch.Capacity,
+      LocalBalanceSat: ch.LocalBalance,
+      RemoteBalanceSat: ch.RemoteBalance,
+    })
+  }
+
+  return channels, nil
+}
+
+func (c *Client) ConnectPeer(ctx context.Context, pubkey string, host string) error {
+  conn, err := c.dial(ctx, true)
+  if err != nil {
+    return err
+  }
+  defer conn.Close()
+
+  client := lnrpc.NewLightningClient(conn)
+  _, err = client.ConnectPeer(ctx, &lnrpc.ConnectPeerRequest{
+    Addr: &lnrpc.LightningAddress{
+      Pubkey: pubkey,
+      Host: host,
+    },
+    Timeout: 8,
+  })
+  return err
+}
+
+func (c *Client) OpenChannel(ctx context.Context, pubkeyHex string, localFundingSat int64, pushSat int64, private bool) (string, error) {
+  pubkeyHex = strings.TrimSpace(pubkeyHex)
+  if pubkeyHex == "" {
+    return "", errors.New("pubkey required")
+  }
+  pubkey, err := hex.DecodeString(pubkeyHex)
+  if err != nil {
+    return "", fmt.Errorf("invalid pubkey hex")
+  }
+
+  conn, err := c.dial(ctx, true)
+  if err != nil {
+    return "", err
+  }
+  defer conn.Close()
+
+  client := lnrpc.NewLightningClient(conn)
+  resp, err := client.OpenChannelSync(ctx, &lnrpc.OpenChannelRequest{
+    NodePubkey: pubkey,
+    LocalFundingAmount: localFundingSat,
+    PushSat: pushSat,
+    Private: private,
+  })
+  if err != nil {
+    return "", err
+  }
+
+  return channelPointString(resp), nil
+}
+
+func (c *Client) CloseChannel(ctx context.Context, channelPoint string, force bool) error {
+  cp, err := parseChannelPoint(channelPoint)
+  if err != nil {
+    return err
+  }
+
+  conn, err := c.dial(ctx, true)
+  if err != nil {
+    return err
+  }
+  defer conn.Close()
+
+  client := lnrpc.NewLightningClient(conn)
+  stream, err := client.CloseChannel(ctx, &lnrpc.CloseChannelRequest{
+    ChannelPoint: cp,
+    Force: force,
+    NoWait: true,
+  })
+  if err != nil {
+    return err
+  }
+  _, err = stream.Recv()
+  if err != nil && !errors.Is(err, io.EOF) {
+    return err
+  }
+  return nil
+}
+
+func (c *Client) UpdateChannelFees(ctx context.Context, channelPoint string, applyAll bool, baseFeeMsat int64, feeRatePpm int64, timeLockDelta int64) error {
+  conn, err := c.dial(ctx, true)
+  if err != nil {
+    return err
+  }
+  defer conn.Close()
+
+  req := &lnrpc.PolicyUpdateRequest{
+    BaseFeeMsat: baseFeeMsat,
+    FeeRatePpm: uint32(feeRatePpm),
+    TimeLockDelta: uint32(timeLockDelta),
+  }
+  if applyAll {
+    req.Scope = &lnrpc.PolicyUpdateRequest_Global{Global: true}
+  } else {
+    cp, err := parseChannelPoint(channelPoint)
+    if err != nil {
+      return err
+    }
+    req.Scope = &lnrpc.PolicyUpdateRequest_ChanPoint{ChanPoint: cp}
+  }
+
+  client := lnrpc.NewLightningClient(conn)
+  _, err = client.UpdateChannelPolicy(ctx, req)
+  return err
+}
+
 func isWalletLocked(err error) bool {
   msg := strings.ToLower(err.Error())
   return strings.Contains(msg, "wallet locked") || strings.Contains(msg, "unlock")
+}
+
+func channelPointString(cp *lnrpc.ChannelPoint) string {
+  if cp == nil {
+    return ""
+  }
+  txid := cp.GetFundingTxidStr()
+  if txid == "" {
+    txid = txidFromBytes(cp.GetFundingTxidBytes())
+  }
+  if txid == "" {
+    return ""
+  }
+  return fmt.Sprintf("%s:%d", txid, cp.OutputIndex)
+}
+
+func txidFromBytes(raw []byte) string {
+  if len(raw) == 0 {
+    return ""
+  }
+  rev := make([]byte, len(raw))
+  for i := range raw {
+    rev[len(raw)-1-i] = raw[i]
+  }
+  return hex.EncodeToString(rev)
+}
+
+func parseChannelPoint(point string) (*lnrpc.ChannelPoint, error) {
+  trimmed := strings.TrimSpace(point)
+  if trimmed == "" {
+    return nil, errors.New("channel_point required")
+  }
+  parts := strings.Split(trimmed, ":")
+  if len(parts) != 2 {
+    return nil, errors.New("channel_point must be txid:index")
+  }
+  idx, err := strconv.ParseUint(parts[1], 10, 32)
+  if err != nil {
+    return nil, errors.New("invalid channel_point index")
+  }
+  return &lnrpc.ChannelPoint{
+    FundingTxid: &lnrpc.ChannelPoint_FundingTxidStr{FundingTxidStr: parts[0]},
+    OutputIndex: uint32(idx),
+  }, nil
 }
 
 type Status struct {
@@ -276,6 +458,18 @@ type Status struct {
   ChannelsInactive int
   OnchainSat int64
   LightningSat int64
+}
+
+type ChannelInfo struct {
+  ChannelPoint string `json:"channel_point"`
+  ChannelID uint64 `json:"channel_id"`
+  RemotePubkey string `json:"remote_pubkey"`
+  PeerAlias string `json:"peer_alias"`
+  Active bool `json:"active"`
+  Private bool `json:"private"`
+  CapacitySat int64 `json:"capacity_sat"`
+  LocalBalanceSat int64 `json:"local_balance_sat"`
+  RemoteBalanceSat int64 `json:"remote_balance_sat"`
 }
 
 type RecentActivity struct {

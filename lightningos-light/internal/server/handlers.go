@@ -546,6 +546,23 @@ func mapService(name string) string {
   }
 }
 
+func parsePeerAddress(address string) (string, string, error) {
+  trimmed := strings.TrimSpace(address)
+  if trimmed == "" {
+    return "", "", errors.New("address required")
+  }
+  parts := strings.Split(trimmed, "@")
+  if len(parts) != 2 {
+    return "", "", errors.New("address must be pubkey@host")
+  }
+  pubkey := strings.TrimSpace(parts[0])
+  host := strings.TrimSpace(parts[1])
+  if pubkey == "" || host == "" {
+    return "", "", errors.New("address must be pubkey@host")
+  }
+  return pubkey, host, nil
+}
+
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
   service := r.URL.Query().Get("service")
   linesRaw := r.URL.Query().Get("lines")
@@ -597,6 +614,172 @@ func (s *Server) handleLNDConfigGet(w http.ResponseWriter, r *http.Request) {
   }
 
   writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleLNChannels(w http.ResponseWriter, r *http.Request) {
+  ctx, cancel := context.WithTimeout(r.Context(), lndRPCTimeout)
+  defer cancel()
+
+  channels, err := s.lnd.ListChannels(ctx)
+  if err != nil {
+    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    return
+  }
+
+  active := 0
+  inactive := 0
+  for _, ch := range channels {
+    if ch.Active {
+      active++
+    } else {
+      inactive++
+    }
+  }
+
+  writeJSON(w, http.StatusOK, map[string]any{
+    "active_count": active,
+    "inactive_count": inactive,
+    "channels": channels,
+  })
+}
+
+func (s *Server) handleLNConnectPeer(w http.ResponseWriter, r *http.Request) {
+  var req struct {
+    Address string `json:"address"`
+    Pubkey string `json:"pubkey"`
+    Host string `json:"host"`
+  }
+  if err := readJSON(r, &req); err != nil {
+    writeError(w, http.StatusBadRequest, "invalid json")
+    return
+  }
+
+  pubkey := strings.TrimSpace(req.Pubkey)
+  host := strings.TrimSpace(req.Host)
+  if req.Address != "" {
+    parsedPubkey, parsedHost, err := parsePeerAddress(req.Address)
+    if err != nil {
+      writeError(w, http.StatusBadRequest, err.Error())
+      return
+    }
+    pubkey = parsedPubkey
+    host = parsedHost
+  }
+  if pubkey == "" || host == "" {
+    writeError(w, http.StatusBadRequest, "pubkey and host required")
+    return
+  }
+
+  ctx, cancel := context.WithTimeout(r.Context(), lndRPCTimeout)
+  defer cancel()
+
+  if err := s.lnd.ConnectPeer(ctx, pubkey, host); err != nil {
+    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    return
+  }
+
+  writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleLNOpenChannel(w http.ResponseWriter, r *http.Request) {
+  var req struct {
+    Pubkey string `json:"pubkey"`
+    LocalFundingSat int64 `json:"local_funding_sat"`
+    PushSat int64 `json:"push_sat"`
+    Private bool `json:"private"`
+  }
+  if err := readJSON(r, &req); err != nil {
+    writeError(w, http.StatusBadRequest, "invalid json")
+    return
+  }
+  if strings.TrimSpace(req.Pubkey) == "" {
+    writeError(w, http.StatusBadRequest, "pubkey required")
+    return
+  }
+  if req.LocalFundingSat <= 0 {
+    writeError(w, http.StatusBadRequest, "local_funding_sat must be positive")
+    return
+  }
+  if req.PushSat < 0 {
+    writeError(w, http.StatusBadRequest, "push_sat must be zero or positive")
+    return
+  }
+
+  ctx, cancel := context.WithTimeout(r.Context(), lndRPCTimeout)
+  defer cancel()
+
+  channelPoint, err := s.lnd.OpenChannel(ctx, req.Pubkey, req.LocalFundingSat, req.PushSat, req.Private)
+  if err != nil {
+    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    return
+  }
+
+  writeJSON(w, http.StatusOK, map[string]string{"channel_point": channelPoint})
+}
+
+func (s *Server) handleLNCloseChannel(w http.ResponseWriter, r *http.Request) {
+  var req struct {
+    ChannelPoint string `json:"channel_point"`
+    Force bool `json:"force"`
+  }
+  if err := readJSON(r, &req); err != nil {
+    writeError(w, http.StatusBadRequest, "invalid json")
+    return
+  }
+  if strings.TrimSpace(req.ChannelPoint) == "" {
+    writeError(w, http.StatusBadRequest, "channel_point required")
+    return
+  }
+
+  ctx, cancel := context.WithTimeout(r.Context(), lndRPCTimeout)
+  defer cancel()
+
+  if err := s.lnd.CloseChannel(ctx, req.ChannelPoint, req.Force); err != nil {
+    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    return
+  }
+
+  writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleLNUpdateFees(w http.ResponseWriter, r *http.Request) {
+  var req struct {
+    ChannelPoint string `json:"channel_point"`
+    ApplyAll bool `json:"apply_all"`
+    BaseFeeMsat int64 `json:"base_fee_msat"`
+    FeeRatePpm int64 `json:"fee_rate_ppm"`
+    TimeLockDelta int64 `json:"time_lock_delta"`
+  }
+  if err := readJSON(r, &req); err != nil {
+    writeError(w, http.StatusBadRequest, "invalid json")
+    return
+  }
+  if req.BaseFeeMsat < 0 || req.FeeRatePpm < 0 || req.TimeLockDelta < 0 {
+    writeError(w, http.StatusBadRequest, "fees must be zero or positive")
+    return
+  }
+  if req.ApplyAll && strings.TrimSpace(req.ChannelPoint) != "" {
+    writeError(w, http.StatusBadRequest, "use apply_all or channel_point, not both")
+    return
+  }
+  if !req.ApplyAll && strings.TrimSpace(req.ChannelPoint) == "" {
+    writeError(w, http.StatusBadRequest, "channel_point required unless apply_all=true")
+    return
+  }
+  if req.BaseFeeMsat == 0 && req.FeeRatePpm == 0 && req.TimeLockDelta == 0 {
+    writeError(w, http.StatusBadRequest, "at least one fee field is required")
+    return
+  }
+
+  ctx, cancel := context.WithTimeout(r.Context(), lndRPCTimeout)
+  defer cancel()
+
+  if err := s.lnd.UpdateChannelFees(ctx, req.ChannelPoint, req.ApplyAll, req.BaseFeeMsat, req.FeeRatePpm, req.TimeLockDelta); err != nil {
+    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    return
+  }
+
+  writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 type lndUserConf struct {

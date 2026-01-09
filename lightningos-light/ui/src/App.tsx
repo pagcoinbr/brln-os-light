@@ -4,6 +4,7 @@ import Topbar from './components/Topbar'
 import Dashboard from './pages/Dashboard'
 import Wizard from './pages/Wizard'
 import Wallet from './pages/Wallet'
+import LightningOps from './pages/LightningOps'
 import Disks from './pages/Disks'
 import Logs from './pages/Logs'
 import BitcoinRemote from './pages/BitcoinRemote'
@@ -14,6 +15,7 @@ const routes = [
   { key: 'dashboard', label: 'Dashboard', element: <Dashboard /> },
   { key: 'wizard', label: 'Wizard', element: <Wizard /> },
   { key: 'wallet', label: 'Wallet', element: <Wallet /> },
+  { key: 'lightning-ops', label: 'Lightning Ops', element: <LightningOps /> },
   { key: 'bitcoin', label: 'Bitcoin Remote', element: <BitcoinRemote /> },
   { key: 'lnd', label: 'LND Config', element: <LndConfig /> },
   { key: 'disks', label: 'Disks', element: <Disks /> },

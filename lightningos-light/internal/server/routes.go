@@ -37,6 +37,14 @@ func (s *Server) routes() http.Handler {
     r.Post("/pay", s.handleWalletPay)
   })
 
+  r.Route("/api/lnops", func(r chi.Router) {
+    r.Get("/channels", s.handleLNChannels)
+    r.Post("/peer", s.handleLNConnectPeer)
+    r.Post("/channel/open", s.handleLNOpenChannel)
+    r.Post("/channel/close", s.handleLNCloseChannel)
+    r.Post("/channel/fees", s.handleLNUpdateFees)
+  })
+
   staticDir := s.cfg.UI.StaticDir
   r.Get("/*", s.handleSPA(staticDir))
 

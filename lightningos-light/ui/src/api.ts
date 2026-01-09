@@ -70,3 +70,22 @@ export const createInvoice = (payload: { amount_sat: number; memo: string }) =>
   request('/api/wallet/invoice', { method: 'POST', body: JSON.stringify(payload) })
 export const payInvoice = (payload: { payment_request: string }) =>
   request('/api/wallet/pay', { method: 'POST', body: JSON.stringify(payload) })
+
+export const getLnChannels = () => request('/api/lnops/channels')
+export const connectPeer = (payload: { address?: string; pubkey?: string; host?: string }) =>
+  request('/api/lnops/peer', { method: 'POST', body: JSON.stringify(payload) })
+export const openChannel = (payload: {
+  pubkey: string
+  local_funding_sat: number
+  push_sat?: number
+  private?: boolean
+}) => request('/api/lnops/channel/open', { method: 'POST', body: JSON.stringify(payload) })
+export const closeChannel = (payload: { channel_point: string; force?: boolean }) =>
+  request('/api/lnops/channel/close', { method: 'POST', body: JSON.stringify(payload) })
+export const updateChannelFees = (payload: {
+  channel_point?: string
+  apply_all?: boolean
+  base_fee_msat?: number
+  fee_rate_ppm?: number
+  time_lock_delta?: number
+}) => request('/api/lnops/channel/fees', { method: 'POST', body: JSON.stringify(payload) })
