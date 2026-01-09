@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { createInvoice, getWalletSummary, payInvoice } from '../api'
+import { createInvoice, getWalletAddress, getWalletSummary, payInvoice } from '../api'
 
 const emptySummary = {
   balances: {
@@ -14,6 +14,11 @@ export default function Wallet() {
   const [summaryError, setSummaryError] = useState('')
   const [summaryWarning, setSummaryWarning] = useState('')
   const [summaryLoading, setSummaryLoading] = useState(true)
+  const [address, setAddress] = useState('')
+  const [addressStatus, setAddressStatus] = useState('')
+  const [addressLoading, setAddressLoading] = useState(false)
+  const [showAddress, setShowAddress] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [amount, setAmount] = useState('')
   const [memo, setMemo] = useState('')
   const [invoice, setInvoice] = useState('')
@@ -51,6 +56,35 @@ export default function Wallet() {
   const lightningBalance = summary?.balances?.lightning_sat ?? 0
   const activity = summary?.activity ?? []
 
+  const handleAddFunds = async () => {
+    setShowAddress(true)
+    setAddress('')
+    setAddressStatus('')
+    setCopied(false)
+    setAddressLoading(true)
+    try {
+      const res = await getWalletAddress()
+      setAddress(res?.address || '')
+      if (!res?.address) {
+        setAddressStatus('Address unavailable.')
+      }
+    } catch (err: any) {
+      setAddressStatus(err?.message || 'Address fetch failed.')
+    } finally {
+      setAddressLoading(false)
+    }
+  }
+
+  const handleCopy = async () => {
+    if (!address) return
+    try {
+      await navigator.clipboard.writeText(address)
+      setCopied(true)
+    } catch {
+      setAddressStatus('Copy failed. Select and copy manually.')
+    }
+  }
+
   const handleInvoice = async () => {
     setStatus('Creating invoice...')
     try {
@@ -79,8 +113,41 @@ export default function Wallet() {
         <p className="text-fog/60">Manage Lightning and on-chain balances.</p>
         <div className="mt-4 grid gap-4 lg:grid-cols-2 text-sm">
           <div>
-            <p className="text-fog/60">On-chain</p>
-            <p className="text-xl">{onchainBalance} sat</p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-fog/60">On-chain</p>
+                <p className="text-xl">{onchainBalance} sat</p>
+              </div>
+              <button className="btn-secondary text-xs px-3 py-1.5" onClick={handleAddFunds}>
+                Add funds
+              </button>
+            </div>
+            {showAddress && (
+              <div className="mt-3 rounded-2xl border border-white/10 bg-ink/60 p-3">
+                <div className="flex items-center justify-between text-xs text-fog/60">
+                  <span>On-chain deposit address (SegWit)</span>
+                  <button className="text-fog/50 hover:text-fog" onClick={() => setShowAddress(false)}>
+                    Close
+                  </button>
+                </div>
+                {addressLoading && (
+                  <p className="mt-2 text-xs text-fog/60">Generating address...</p>
+                )}
+                {!addressLoading && address && (
+                  <>
+                    <p className="mt-2 text-xs font-mono break-all">{address}</p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <button className="btn-secondary text-xs px-3 py-1.5" onClick={handleCopy}>
+                        {copied ? 'Copied' : 'Copy address'}
+                      </button>
+                    </div>
+                  </>
+                )}
+                {!addressLoading && !address && addressStatus && (
+                  <p className="mt-2 text-xs text-ember">{addressStatus}</p>
+                )}
+              </div>
+            )}
           </div>
           <div>
             <p className="text-fog/60">Lightning</p>

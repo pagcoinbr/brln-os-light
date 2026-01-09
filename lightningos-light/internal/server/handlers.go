@@ -117,6 +117,9 @@ func lndStatusMessage(err error) string {
     return ""
   }
   msg := strings.ToLower(err.Error())
+  if strings.Contains(msg, "wallet locked") || strings.Contains(msg, "unlock") {
+    return "LND wallet locked"
+  }
   if strings.Contains(msg, "macaroon") {
     if strings.Contains(msg, "permission denied") {
       return "LND macaroon unreadable (check permissions)"
@@ -859,6 +862,22 @@ func (s *Server) handleWalletSummary(w http.ResponseWriter, r *http.Request) {
       "lightning_sat": status.LightningSat,
     },
     "activity": activity,
+  })
+}
+
+func (s *Server) handleWalletAddress(w http.ResponseWriter, r *http.Request) {
+  ctx, cancel := context.WithTimeout(r.Context(), lndRPCTimeout)
+  defer cancel()
+
+  addr, err := s.lnd.NewAddress(ctx)
+  if err != nil {
+    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    return
+  }
+
+  writeJSON(w, http.StatusOK, map[string]string{
+    "address": addr,
+    "type": "p2wpkh",
   })
 }
 

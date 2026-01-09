@@ -32,6 +32,7 @@ func (s *Server) routes() http.Handler {
 
   r.Route("/api/wallet", func(r chi.Router) {
     r.Get("/summary", s.handleWalletSummary)
+    r.Post("/address", s.handleWalletAddress)
     r.Post("/invoice", s.handleWalletInvoice)
     r.Post("/pay", s.handleWalletPay)
   })

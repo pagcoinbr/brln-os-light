@@ -65,6 +65,7 @@ export const updateLndRawConfig = (payload: { raw_user_conf: string; apply_now: 
   request('/api/lnd/config/raw', { method: 'POST', body: JSON.stringify(payload) })
 
 export const getWalletSummary = () => request('/api/wallet/summary')
+export const getWalletAddress = () => request('/api/wallet/address', { method: 'POST' })
 export const createInvoice = (payload: { amount_sat: number; memo: string }) =>
   request('/api/wallet/invoice', { method: 'POST', body: JSON.stringify(payload) })
 export const payInvoice = (payload: { payment_request: string }) =>

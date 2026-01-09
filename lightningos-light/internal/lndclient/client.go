@@ -186,6 +186,25 @@ func (c *Client) CreateInvoice(ctx context.Context, amountSat int64, memo string
   return resp.PaymentRequest, nil
 }
 
+func (c *Client) NewAddress(ctx context.Context) (string, error) {
+  conn, err := c.dial(ctx, true)
+  if err != nil {
+    return "", err
+  }
+  defer conn.Close()
+
+  client := lnrpc.NewLightningClient(conn)
+
+  resp, err := client.NewAddress(ctx, &lnrpc.NewAddressRequest{
+    Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+  })
+  if err != nil {
+    return "", err
+  }
+
+  return resp.Address, nil
+}
+
 func (c *Client) PayInvoice(ctx context.Context, paymentRequest string) error {
   conn, err := c.dial(ctx, true)
   if err != nil {
