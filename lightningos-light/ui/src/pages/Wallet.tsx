@@ -1,8 +1,18 @@
 import { useEffect, useState } from 'react'
 import { createInvoice, getWalletSummary, payInvoice } from '../api'
 
+const emptySummary = {
+  balances: {
+    onchain_sat: 0,
+    lightning_sat: 0
+  },
+  activity: []
+}
+
 export default function Wallet() {
-  const [summary, setSummary] = useState<any>(null)
+  const [summary, setSummary] = useState<any>(emptySummary)
+  const [summaryError, setSummaryError] = useState('')
+  const [summaryLoading, setSummaryLoading] = useState(true)
   const [amount, setAmount] = useState('')
   const [memo, setMemo] = useState('')
   const [invoice, setInvoice] = useState('')
@@ -10,8 +20,33 @@ export default function Wallet() {
   const [status, setStatus] = useState('')
 
   useEffect(() => {
-    getWalletSummary().then(setSummary).catch(() => null)
+    let mounted = true
+    const load = async () => {
+      setSummaryError('')
+      try {
+        const data = await getWalletSummary()
+        if (!mounted) return
+        setSummary(data || emptySummary)
+      } catch (err: any) {
+        if (!mounted) return
+        const message = err?.message || 'Wallet summary unavailable'
+        setSummaryError(message)
+      } finally {
+        if (!mounted) return
+        setSummaryLoading(false)
+      }
+    }
+    load()
+    const timer = setInterval(load, 15000)
+    return () => {
+      mounted = false
+      clearInterval(timer)
+    }
   }, [])
+
+  const onchainBalance = summary?.balances?.onchain_sat ?? 0
+  const lightningBalance = summary?.balances?.lightning_sat ?? 0
+  const activity = summary?.activity ?? []
 
   const handleInvoice = async () => {
     setStatus('Creating invoice...')
@@ -39,17 +74,21 @@ export default function Wallet() {
       <div className="section-card">
         <h2 className="text-2xl font-semibold">Wallet</h2>
         <p className="text-fog/60">Manage Lightning and on-chain balances.</p>
-        {summary && (
-          <div className="mt-4 grid gap-4 lg:grid-cols-2 text-sm">
-            <div>
-              <p className="text-fog/60">On-chain</p>
-              <p className="text-xl">{summary.balances.onchain_sat} sat</p>
-            </div>
-            <div>
-              <p className="text-fog/60">Lightning</p>
-              <p className="text-xl">{summary.balances.lightning_sat} sat</p>
-            </div>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2 text-sm">
+          <div>
+            <p className="text-fog/60">On-chain</p>
+            <p className="text-xl">{onchainBalance} sat</p>
           </div>
+          <div>
+            <p className="text-fog/60">Lightning</p>
+            <p className="text-xl">{lightningBalance} sat</p>
+          </div>
+        </div>
+        {summaryLoading && !summaryError && (
+          <p className="mt-4 text-sm text-fog/60">Fetching wallet balances...</p>
+        )}
+        {summaryError && (
+          <p className="mt-4 text-sm text-ember">Wallet status: {summaryError}</p>
         )}
         {status && <p className="mt-4 text-sm text-brass">{status}</p>}
       </div>
@@ -75,9 +114,11 @@ export default function Wallet() {
       <div className="section-card">
         <h3 className="text-lg font-semibold">Recent activity</h3>
         <div className="mt-4 space-y-2 text-sm">
-          {summary?.activity?.length ? summary.activity.map((item: any, idx: number) => (
+          {summaryError ? (
+            <p className="text-fog/60">Activity unavailable until LND is reachable.</p>
+          ) : activity.length ? activity.map((item: any, idx: number) => (
             <div key={`${item.type}-${idx}`} className="flex items-center justify-between border-b border-white/10 pb-2">
-              <span className="text-fog/70">{item.type} ? {item.status}</span>
+              <span className="text-fog/70">{item.type} - {item.status}</span>
               <span>{item.amount_sat} sat</span>
             </div>
           )) : (

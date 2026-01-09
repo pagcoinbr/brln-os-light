@@ -159,8 +159,56 @@ EOF
 install_packages() {
   print_step "Installing base packages"
   apt-get update
-  apt-get install -y postgresql smartmontools curl jq ca-certificates openssl build-essential git sudo tor
+  apt-get install -y postgresql smartmontools curl jq ca-certificates openssl build-essential git sudo tor apt-transport-https
   print_ok "Base packages installed"
+}
+
+ensure_tor_setting() {
+  local key="$1"
+  local value="$2"
+  local torrc="/etc/tor/torrc"
+  if grep -Eq "^[[:space:]]*#?[[:space:]]*${key}[[:space:]]+" "$torrc"; then
+    sed -i -E "s|^[[:space:]]*#?[[:space:]]*${key}[[:space:]]+.*|${key} ${value}|" "$torrc"
+  else
+    echo "${key} ${value}" >> "$torrc"
+  fi
+}
+
+configure_tor() {
+  print_step "Configuring Tor"
+  local torrc="/etc/tor/torrc"
+  if ! command -v tor >/dev/null 2>&1; then
+    print_warn "tor not installed; skipping"
+    return
+  fi
+  if [[ ! -f "$torrc" ]]; then
+    print_warn "$torrc not found; skipping"
+    return
+  fi
+  ensure_tor_setting "ControlPort" "9051"
+  ensure_tor_setting "CookieAuthentication" "1"
+  ensure_tor_setting "CookieAuthFileGroupReadable" "1"
+  ensure_tor_setting "SocksPort" "9050"
+  strip_crlf "$torrc"
+  if systemctl list-unit-files | grep -q '^tor@default\.service'; then
+    systemctl enable --now tor@default >/dev/null 2>&1 || true
+    systemctl reload tor@default >/dev/null 2>&1 || true
+  else
+    systemctl enable --now tor >/dev/null 2>&1 || true
+    systemctl reload tor >/dev/null 2>&1 || true
+  fi
+  print_ok "Tor configured"
+}
+
+install_i2pd() {
+  print_step "Installing i2pd"
+  if ! command -v i2pd >/dev/null 2>&1; then
+    curl -fsSL https://repo.i2pd.xyz/.help/add_repo | bash -s -
+    apt-get update
+    apt-get install -y i2pd
+  fi
+  systemctl enable --now i2pd >/dev/null 2>&1 || true
+  print_ok "i2pd installed"
 }
 
 install_go() {
@@ -652,6 +700,8 @@ main() {
   ensure_group_member lightningos lnd
   configure_sudoers
   install_packages
+  configure_tor
+  install_i2pd
   install_go
   install_node
   ensure_dirs

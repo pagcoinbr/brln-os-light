@@ -48,7 +48,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
   lndStatus, err := s.lnd.GetStatus(ctx)
   if err != nil {
-    issues = append(issues, healthIssue{Component: "lnd", Level: "ERR", Message: "LND not reachable"})
+    issues = append(issues, healthIssue{Component: "lnd", Level: "ERR", Message: lndStatusMessage(err)})
     status = elevate(status, "ERR")
   } else if lndStatus.WalletState == "locked" {
     issues = append(issues, healthIssue{Component: "lnd", Level: "ERR", Message: "LND wallet locked"})
@@ -95,6 +95,38 @@ func elevate(current string, next string) string {
     return "WARN"
   }
   return current
+}
+
+func lndStatusMessage(err error) string {
+  if err == nil {
+    return ""
+  }
+  msg := strings.ToLower(err.Error())
+  if strings.Contains(msg, "macaroon") {
+    if strings.Contains(msg, "permission denied") {
+      return "LND macaroon unreadable (check permissions)"
+    }
+    if strings.Contains(msg, "no such file") {
+      return "LND macaroon missing"
+    }
+    return "LND macaroon error"
+  }
+  if strings.Contains(msg, "tls") || strings.Contains(msg, "cert") {
+    if strings.Contains(msg, "permission denied") {
+      return "LND TLS cert unreadable (check permissions)"
+    }
+    if strings.Contains(msg, "no such file") {
+      return "LND TLS cert missing"
+    }
+    return "LND TLS error"
+  }
+  if strings.Contains(msg, "connection refused") {
+    return "LND gRPC connection refused"
+  }
+  if strings.Contains(msg, "context deadline exceeded") || strings.Contains(msg, "deadline exceeded") {
+    return "LND gRPC timeout"
+  }
+  return "LND not reachable"
 }
 
 func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
@@ -742,7 +774,7 @@ func (s *Server) handleWalletSummary(w http.ResponseWriter, r *http.Request) {
 
   status, err := s.lnd.GetStatus(ctx)
   if err != nil {
-    writeError(w, http.StatusInternalServerError, "lnd status error")
+    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
     return
   }
 
