@@ -190,12 +190,14 @@ configure_tor() {
   ensure_tor_setting "CookieAuthFileGroupReadable" "1"
   ensure_tor_setting "SocksPort" "9050"
   strip_crlf "$torrc"
+  start_tor_service
   if systemctl list-unit-files | grep -q '^tor@default\.service'; then
-    systemctl enable --now tor@default >/dev/null 2>&1 || true
     systemctl reload tor@default >/dev/null 2>&1 || true
   else
-    systemctl enable --now tor >/dev/null 2>&1 || true
     systemctl reload tor >/dev/null 2>&1 || true
+  fi
+  if ! wait_for_tor_control; then
+    print_warn "Tor control port 9051 not ready yet"
   fi
   print_ok "Tor configured"
 }
@@ -639,12 +641,41 @@ install_systemd() {
   strip_crlf /etc/systemd/system/lightningos-manager.service
   systemctl daemon-reload
   systemctl enable --now postgresql
-  systemctl enable --now tor >/dev/null 2>&1 || true
+  start_tor_service
+  if ! wait_for_tor_control; then
+    print_warn "Tor control port 9051 not ready; LND may fail to start"
+  fi
   systemctl enable --now lnd
   systemctl enable --now lightningos-manager
   systemctl restart lnd >/dev/null 2>&1 || true
   systemctl restart lightningos-manager >/dev/null 2>&1 || true
   print_ok "Services enabled and started"
+}
+
+start_tor_service() {
+  if systemctl list-unit-files | grep -q '^tor@default\.service'; then
+    systemctl enable --now tor@default >/dev/null 2>&1 || true
+  else
+    systemctl enable --now tor >/dev/null 2>&1 || true
+  fi
+}
+
+wait_for_tor_control() {
+  local retries=15
+  local i
+  for i in $(seq 1 "$retries"); do
+    if command -v ss >/dev/null 2>&1; then
+      if ss -ltn | grep -q '127.0.0.1:9051'; then
+        return 0
+      fi
+    else
+      if (echo > /dev/tcp/127.0.0.1/9051) >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  return 1
 }
 
 service_status_summary() {
