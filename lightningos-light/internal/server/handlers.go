@@ -842,7 +842,7 @@ func (s *Server) handleWalletSummary(w http.ResponseWriter, r *http.Request) {
           "onchain_sat": 0,
           "lightning_sat": 0,
         },
-        "activity": []RecentActivity{},
+        "activity": []any{},
         "warning": "LND warming up after restart",
       })
       return
