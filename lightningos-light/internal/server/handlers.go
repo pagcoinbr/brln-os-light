@@ -964,18 +964,27 @@ func (s *Server) handleLNDConfigRaw(w http.ResponseWriter, r *http.Request) {
     return
   }
 
+  warning := ""
   if req.ApplyNow {
-    ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+    ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
     defer cancel()
     if err := system.SystemctlRestart(ctx, "lnd"); err != nil {
-      _ = os.WriteFile(lndConfPath, prev, 0660)
-      writeError(w, http.StatusInternalServerError, "lnd restart failed, rollback applied")
-      return
+      if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+        warning = "LND restart is taking longer than expected. Check status in a moment."
+      } else {
+        _ = os.WriteFile(lndConfPath, prev, 0660)
+        writeError(w, http.StatusInternalServerError, "lnd restart failed, rollback applied")
+        return
+      }
     }
     s.markLNDRestart()
   }
 
-  writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+  resp := map[string]any{"ok": true}
+  if warning != "" {
+    resp["warning"] = warning
+  }
+  writeJSON(w, http.StatusOK, resp)
 }
 
 type lndOptionUpdate struct {

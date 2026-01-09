@@ -52,10 +52,18 @@ export default function LndConfig() {
   const handleSaveRaw = async () => {
     setStatus('Saving advanced config...')
     try {
-      await updateLndRawConfig({ raw_user_conf: raw, apply_now: true })
-      setStatus('Advanced config applied.')
-    } catch {
-      setStatus('Advanced config failed.')
+      const result = await updateLndRawConfig({ raw_user_conf: raw, apply_now: true })
+      if (result?.warning) {
+        setStatus(`Advanced config applied. ${result.warning}`)
+      } else {
+        setStatus('Advanced config applied.')
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message) {
+        setStatus(err.message)
+      } else {
+        setStatus('Advanced config failed.')
+      }
     }
   }
 
