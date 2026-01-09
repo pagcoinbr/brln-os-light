@@ -121,23 +121,26 @@ wait_for_apt_locks() {
 }
 
 apt_get() {
-  local out
   local attempt
+  local log
+  log=$(mktemp)
   for attempt in $(seq 1 5); do
     wait_for_apt_locks || true
-    if out=$(apt-get "$@" 2>&1); then
-      echo "$out"
+    if apt-get "$@" 2>&1 | tee "$log"; then
+      rm -f "$log"
       return 0
     fi
-    if echo "$out" | grep -q "Could not get lock"; then
+    if grep -q "Could not get lock" "$log"; then
       print_warn "apt lock busy; waiting before retry"
       sleep 5
       continue
     fi
-    echo "$out" >&2
+    cat "$log" >&2
+    rm -f "$log"
     return 1
   done
-  echo "$out" >&2
+  cat "$log" >&2
+  rm -f "$log"
   return 1
 }
 
@@ -149,7 +152,7 @@ setup_postgres_repo() {
     print_warn "Could not detect OS codename; skipping PGDG repo"
     return
   fi
-  apt_get install -y ca-certificates curl gnupg >/dev/null
+  apt_get install -y ca-certificates curl gnupg
   curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
   echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt ${codename}-pgdg main" \
     > /etc/apt/sources.list.d/pgdg.list
@@ -164,7 +167,7 @@ setup_tor_repo() {
     print_warn "Could not detect OS codename; skipping Tor repo"
     return
   fi
-  apt_get install -y ca-certificates curl gnupg >/dev/null
+  apt_get install -y ca-certificates curl gnupg
   if ! curl -fsI "https://deb.torproject.org/torproject.org/dists/${codename}/InRelease" >/dev/null 2>&1; then
     print_warn "Tor repo not available for ${codename}, falling back to jammy"
     codename="jammy"
