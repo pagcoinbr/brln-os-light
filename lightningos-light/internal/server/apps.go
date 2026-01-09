@@ -332,7 +332,7 @@ func ensureDocker(ctx context.Context) error {
       }
       return nil
     }
-    if _, startErr := system.RunCommandWithSudo(ctx, "systemctl", "enable", "--now", "docker"); startErr == nil {
+    if _, startErr := system.RunCommandWithSudo(ctx, "systemctl", "enable", "--now", "docker"); startErr == nil || isDockerActive(ctx) {
       if err := ensureCompose(ctx); err != nil {
         return err
       }
@@ -359,9 +359,20 @@ func installDocker(ctx context.Context) error {
     }
   }
   if _, err := system.RunCommandWithSudo(ctx, "systemctl", "enable", "--now", "docker"); err != nil {
+    if isDockerActive(ctx) {
+      return nil
+    }
     return fmt.Errorf("failed to start docker: %w", err)
   }
   return nil
+}
+
+func isDockerActive(ctx context.Context) bool {
+  out, err := system.RunCommandWithSudo(ctx, "systemctl", "is-active", "docker")
+  if err != nil {
+    return false
+  }
+  return strings.TrimSpace(out) == "active"
 }
 
 func ensureCompose(ctx context.Context) error {
