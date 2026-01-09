@@ -45,17 +45,21 @@ export default function Topbar() {
           <div className={`px-4 py-2 rounded-full border text-sm ${statusColors[status] || 'bg-white/10 border-white/20'}`}>
             {status}
           </div>
-          <div className="text-xs text-fog/60 max-w-xs">
-            {issues.length
-              ? issues
-                .map((issue) => {
-                  const label = issue.component ? issue.component.toUpperCase() : 'SYSTEM'
-                  const message = issue.message || 'Issue detected'
-                  return `${label}: ${message}`
-                })
-                .join(' • ')
-              : 'All systems green'}
-          </div>
+        <div className="text-xs text-fog/60 max-w-xs">
+          {issues.length
+            ? issues
+              .map((issue) => {
+                const label = issue.component ? issue.component.toUpperCase() : 'SYSTEM'
+                const message = issue.message || 'Issue detected'
+                return `${label}: ${message}`
+              })
+              .join(' • ')
+            : status === '...'
+              ? 'Checking system status...'
+              : status === 'OK'
+                ? 'All systems green'
+                : 'Status unavailable'}
+        </div>
         </div>
       </div>
       <div className="glow-divider mt-6" />

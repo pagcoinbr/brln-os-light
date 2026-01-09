@@ -42,13 +42,12 @@ type healthResponse struct {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-  ctx, cancel := context.WithTimeout(r.Context(), lndRPCTimeout)
-  defer cancel()
-
   issues := []healthIssue{}
   status := "OK"
 
-  lndStatus, err := s.lnd.GetStatus(ctx)
+  lndCtx, lndCancel := context.WithTimeout(r.Context(), lndRPCTimeout)
+  defer lndCancel()
+  lndStatus, err := s.lnd.GetStatus(lndCtx)
   if err != nil {
     if isTimeoutError(err) && s.lndWarmupActive() {
       issues = append(issues, healthIssue{Component: "lnd", Level: "WARN", Message: "LND warming up after restart"})
@@ -62,7 +61,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
     status = elevate(status, "ERR")
   }
 
-  bitcoin, err := s.bitcoinStatus(ctx)
+  btcCtx, btcCancel := context.WithTimeout(r.Context(), 3*time.Second)
+  defer btcCancel()
+  bitcoin, err := s.bitcoinStatus(btcCtx)
   if err != nil {
     issues = append(issues, healthIssue{Component: "bitcoin", Level: "WARN", Message: "Bitcoin remote check failed"})
     status = elevate(status, "WARN")
@@ -77,7 +78,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
     }
   }
 
-  if !system.SystemctlIsActive(ctx, "postgresql") {
+  pgCtx, pgCancel := context.WithTimeout(r.Context(), 3*time.Second)
+  defer pgCancel()
+  if !system.SystemctlIsActive(pgCtx, "postgresql") {
     issues = append(issues, healthIssue{Component: "postgres", Level: "ERR", Message: "Postgres inactive"})
     status = elevate(status, "ERR")
   }
