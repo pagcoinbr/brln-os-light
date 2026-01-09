@@ -142,7 +142,7 @@ func lndStatusMessage(err error) string {
     return "LND gRPC connection refused"
   }
   if strings.Contains(msg, "context deadline exceeded") || strings.Contains(msg, "deadline exceeded") {
-    return "LND gRPC timeout"
+    return "LND gRPC timeout (retrying)"
   }
   return "LND not reachable"
 }

@@ -9,7 +9,7 @@ const statusColors: Record<string, string> = {
 
 export default function Topbar() {
   const [status, setStatus] = useState('...')
-  const [issues, setIssues] = useState<string[]>([])
+  const [issues, setIssues] = useState<Array<{ component?: string; level?: string; message?: string }>>([])
 
   useEffect(() => {
     let mounted = true
@@ -18,11 +18,11 @@ export default function Topbar() {
         const data = await getHealth()
         if (!mounted) return
         setStatus(data.status)
-        setIssues(data.issues?.map((item: any) => item.message) || [])
+        setIssues(Array.isArray(data.issues) ? data.issues : [])
       } catch {
         if (!mounted) return
         setStatus('ERR')
-        setIssues(['Health check failed'])
+        setIssues([{ component: 'system', level: 'ERR', message: 'Health check failed' }])
       }
     }
 
@@ -46,7 +46,15 @@ export default function Topbar() {
             {status}
           </div>
           <div className="text-xs text-fog/60 max-w-xs">
-            {issues.length ? issues.join(' ? ') : 'All systems green'}
+            {issues.length
+              ? issues
+                .map((issue) => {
+                  const label = issue.component ? issue.component.toUpperCase() : 'SYSTEM'
+                  const message = issue.message || 'Issue detected'
+                  return `${label}: ${message}`
+                })
+                .join(' • ')
+              : 'All systems green'}
           </div>
         </div>
       </div>
