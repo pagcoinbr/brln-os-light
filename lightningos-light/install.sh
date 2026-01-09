@@ -112,6 +112,10 @@ wait_for_apt_locks() {
   local i
   for i in $(seq 1 "$retries"); do
     if pgrep -x apt-get >/dev/null 2>&1 || pgrep -x dpkg >/dev/null 2>&1 || pgrep -x unattended-upgrades >/dev/null 2>&1 || pgrep -x unattended-upgr >/dev/null 2>&1; then
+      print_warn "Waiting for apt/dpkg lock... (attempt ${i}/${retries})"
+      if command -v ps >/dev/null 2>&1; then
+        ps -eo pid,comm,args | awk '/(apt-get|apt|dpkg|unattended)/ && !/awk/ {print "  " $0}'
+      fi
       sleep 5
       continue
     fi
@@ -125,7 +129,9 @@ apt_get() {
   local log
   log=$(mktemp)
   for attempt in $(seq 1 5); do
-    wait_for_apt_locks || true
+    if ! wait_for_apt_locks; then
+      print_warn "apt/dpkg lock wait timed out"
+    fi
     if apt-get "$@" 2>&1 | tee "$log"; then
       rm -f "$log"
       return 0
