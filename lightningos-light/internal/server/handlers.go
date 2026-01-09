@@ -473,6 +473,10 @@ func (s *Server) handleInitWallet(w http.ResponseWriter, r *http.Request) {
     writeError(w, http.StatusBadRequest, "wallet_password and seed_words required")
     return
   }
+  if walletExists() {
+    writeError(w, http.StatusConflict, "wallet already exists")
+    return
+  }
 
   ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
   defer cancel()

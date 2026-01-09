@@ -115,11 +115,18 @@ export default function Wizard() {
     setStatusTone('warn')
     try {
       await initWallet({ wallet_password: walletPassword, seed_words: words })
-      setStatus('Wallet initialized.')
+      setStatus('Wallet initialized. Auto-unlock configured.')
       setStatusTone('success')
-      next()
+      setStep(4)
     } catch (err: any) {
-      setStatus(err?.message || 'Wallet init failed.')
+      const message = err?.message || 'Wallet init failed.'
+      if (message.toLowerCase().includes('wallet already exists')) {
+        setStatus('Wallet already exists. Unlock it in the next step.')
+        setStatusTone('warn')
+        setStep(3)
+        return
+      }
+      setStatus(message)
       setStatusTone('error')
     }
   }
@@ -229,7 +236,7 @@ export default function Wizard() {
 
       {step === 3 && (
         <div className="section-card space-y-4">
-          <h3 className="text-lg font-semibold">Step 3: Unlock wallet</h3>
+          <h3 className="text-lg font-semibold">Step 3: Unlock existing wallet</h3>
           <input className="input-field" placeholder="Wallet password" type="password" value={unlockPass} onChange={(e) => setUnlockPass(e.target.value)} />
           <button className="btn-primary" onClick={handleUnlock}>Unlock</button>
         </div>

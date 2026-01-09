@@ -282,6 +282,7 @@ ensure_tor_setting() {
 configure_tor() {
   print_step "Configuring Tor"
   local torrc="/etc/tor/torrc"
+  local use_default="false"
   if ! command -v tor >/dev/null 2>&1; then
     print_warn "tor not installed; skipping"
     return
@@ -290,7 +291,13 @@ configure_tor() {
     print_warn "$torrc not found; skipping"
     return
   fi
+  if systemctl list-unit-files | grep -q '^tor@default\.service'; then
+    use_default="true"
+  fi
   ensure_tor_setting "ControlPort" "9051"
+  if [[ "$use_default" == "true" ]]; then
+    ensure_tor_setting "SocksPort" "9050"
+  fi
 
   strip_crlf "$torrc"
   start_tor_service
