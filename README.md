@@ -85,6 +85,12 @@ journalctl -u lightningos-manager -n 200 --no-pager
 ss -ltn | grep :8443
 ```
 
+### App Store (LNDg)
+- LNDg runs in Docker and listens on `http://<SERVER_LAN_IP>:8889`.
+- The LNDg logs page reads `/var/log/lndg-controller.log` inside the container. If it is empty, check `docker logs lndg-lndg-1`.
+- If you see `Is a directory: /var/log/lndg-controller.log`, remove `/var/lib/lightningos/apps-data/lndg/data/lndg-controller.log` on the host and restart LNDg.
+- If LND is using Postgres, LNDg may log `channel.db` missing. This is expected and harmless.
+
 ## Development
 See `DEVELOPMENT.md` for local dev setup and build instructions.
 

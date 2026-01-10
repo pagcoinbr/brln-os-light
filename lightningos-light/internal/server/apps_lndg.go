@@ -2,48 +2,17 @@ package server
 
 import (
   "context"
-  "crypto/rand"
   "crypto/sha256"
-  "encoding/base64"
   "encoding/hex"
-  "encoding/json"
   "errors"
   "fmt"
-  "io"
-  "net/http"
   "os"
-  "os/exec"
   "path/filepath"
-  "runtime"
   "strings"
   "time"
 
-  "github.com/go-chi/chi/v5"
-
   "lightningos-light/internal/system"
 )
-
-const (
-  appsRoot = "/var/lib/lightningos/apps"
-  appsDataRoot = "/var/lib/lightningos/apps-data"
-)
-
-type appDefinition struct {
-  ID string
-  Name string
-  Description string
-  Port int
-}
-
-type appInfo struct {
-  ID string `json:"id"`
-  Name string `json:"name"`
-  Description string `json:"description"`
-  Installed bool `json:"installed"`
-  Status string `json:"status"`
-  Port int `json:"port"`
-  AdminPasswordPath string `json:"admin_password_path,omitempty"`
-}
 
 type lndgPaths struct {
   Root string
@@ -88,120 +57,6 @@ func lndgAppPaths() lndgPaths {
   }
 }
 
-func (s *Server) handleAppsList(w http.ResponseWriter, r *http.Request) {
-  defs := []appDefinition{
-    lndgDefinition(),
-  }
-  resp := make([]appInfo, 0, len(defs))
-  for _, def := range defs {
-    info := s.getAppInfo(r.Context(), def)
-    resp = append(resp, info)
-  }
-  writeJSON(w, http.StatusOK, resp)
-}
-
-func (s *Server) handleAppInstall(w http.ResponseWriter, r *http.Request) {
-  appID := chi.URLParam(r, "id")
-  if appID == "" {
-    writeError(w, http.StatusBadRequest, "missing app id")
-    return
-  }
-  switch appID {
-  case "lndg":
-    if err := s.installLndg(r.Context()); err != nil {
-      writeError(w, http.StatusInternalServerError, err.Error())
-      return
-    }
-  default:
-    writeError(w, http.StatusNotFound, "app not found")
-    return
-  }
-  writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (s *Server) handleAppUninstall(w http.ResponseWriter, r *http.Request) {
-  appID := chi.URLParam(r, "id")
-  if appID == "" {
-    writeError(w, http.StatusBadRequest, "missing app id")
-    return
-  }
-  switch appID {
-  case "lndg":
-    if err := s.uninstallLndg(r.Context()); err != nil {
-      writeError(w, http.StatusInternalServerError, err.Error())
-      return
-    }
-  default:
-    writeError(w, http.StatusNotFound, "app not found")
-    return
-  }
-  writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (s *Server) handleAppStart(w http.ResponseWriter, r *http.Request) {
-  appID := chi.URLParam(r, "id")
-  if appID == "" {
-    writeError(w, http.StatusBadRequest, "missing app id")
-    return
-  }
-  switch appID {
-  case "lndg":
-    if err := s.startLndg(r.Context()); err != nil {
-      writeError(w, http.StatusInternalServerError, err.Error())
-      return
-    }
-  default:
-    writeError(w, http.StatusNotFound, "app not found")
-    return
-  }
-  writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (s *Server) handleAppStop(w http.ResponseWriter, r *http.Request) {
-  appID := chi.URLParam(r, "id")
-  if appID == "" {
-    writeError(w, http.StatusBadRequest, "missing app id")
-    return
-  }
-  switch appID {
-  case "lndg":
-    if err := s.stopLndg(r.Context()); err != nil {
-      writeError(w, http.StatusInternalServerError, err.Error())
-      return
-    }
-  default:
-    writeError(w, http.StatusNotFound, "app not found")
-    return
-  }
-  writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (s *Server) getAppInfo(ctx context.Context, def appDefinition) appInfo {
-  info := appInfo{
-    ID: def.ID,
-    Name: def.Name,
-    Description: def.Description,
-    Installed: false,
-    Status: "not_installed",
-    Port: def.Port,
-  }
-  if def.ID != "lndg" {
-    return info
-  }
-  paths := lndgAppPaths()
-  if fileExists(paths.ComposePath) {
-    info.Installed = true
-    info.AdminPasswordPath = paths.AdminPasswordPath
-    status, err := getComposeStatus(ctx, paths.Root, paths.ComposePath, "lndg")
-    if err != nil {
-      info.Status = "unknown"
-    } else {
-      info.Status = status
-    }
-  }
-  return info
-}
-
 func (s *Server) installLndg(ctx context.Context) error {
   if err := ensureDocker(ctx); err != nil {
     return err
@@ -218,9 +73,6 @@ func (s *Server) installLndg(ctx context.Context) error {
   }
   if err := os.MkdirAll(paths.PgDir, 0750); err != nil {
     return fmt.Errorf("failed to create app db directory: %w", err)
-  }
-  if err := ensureLndgLogFile(paths.LogPath); err != nil {
-    return err
   }
   if err := ensureLndgLogFile(paths.LogPath); err != nil {
     return err
@@ -279,6 +131,9 @@ func (s *Server) startLndg(ctx context.Context) error {
   }
   if err := os.MkdirAll(paths.PgDir, 0750); err != nil {
     return fmt.Errorf("failed to create app db directory: %w", err)
+  }
+  if err := ensureLndgLogFile(paths.LogPath); err != nil {
+    return err
   }
   needsBuild := false
   currentHash := lndgBuildHash()
@@ -489,176 +344,6 @@ func ensureLndgEnv(ctx context.Context, paths lndgPaths) error {
   return nil
 }
 
-func ensureDocker(ctx context.Context) error {
-  if _, err := exec.LookPath("docker"); err == nil {
-    if _, infoErr := system.RunCommandWithSudo(ctx, "docker", "info"); infoErr == nil {
-      if err := ensureCompose(ctx); err != nil {
-        return err
-      }
-      return nil
-    }
-    if _, startErr := system.RunCommandWithSudo(ctx, "systemctl", "enable", "--now", "docker"); startErr == nil || isDockerActive(ctx) {
-      if err := ensureCompose(ctx); err != nil {
-        return err
-      }
-      return nil
-    }
-  }
-  if err := installDocker(ctx); err != nil {
-    return err
-  }
-  return ensureCompose(ctx)
-}
-
-func installDocker(ctx context.Context) error {
-  if _, err := runApt(ctx, "update"); err != nil {
-    return err
-  }
-  out, err := runApt(ctx, "install", "-y", "docker.io", "docker-compose-plugin")
-  if err != nil {
-    if strings.Contains(out, "Unable to locate package docker-compose-plugin") {
-      out, err = runApt(ctx, "install", "-y", "docker.io", "docker-compose")
-    }
-    if err != nil {
-      return fmt.Errorf("docker install failed: %s", strings.TrimSpace(out))
-    }
-  }
-  if _, err := system.RunCommandWithSudo(ctx, "systemctl", "enable", "--now", "docker"); err != nil {
-    if isDockerActive(ctx) {
-      return nil
-    }
-    return fmt.Errorf("failed to start docker: %w", err)
-  }
-  return nil
-}
-
-func isDockerActive(ctx context.Context) bool {
-  out, err := system.RunCommandWithSudo(ctx, "systemctl", "is-active", "docker")
-  if err != nil {
-    return false
-  }
-  return strings.TrimSpace(out) == "active"
-}
-
-func ensureCompose(ctx context.Context) error {
-  if _, _, err := resolveCompose(ctx); err == nil {
-    return nil
-  }
-  _, err := runApt(ctx, "install", "-y", "docker-compose-plugin")
-  if err != nil && strings.Contains(err.Error(), "passwordless sudo") {
-    return err
-  }
-  _, err = runApt(ctx, "install", "-y", "docker-compose")
-  if err != nil && strings.Contains(err.Error(), "passwordless sudo") {
-    return err
-  }
-  if err := installComposePluginBinary(ctx); err != nil {
-    if strings.Contains(err.Error(), "passwordless sudo") {
-      return err
-    }
-  }
-  if _, _, err := resolveCompose(ctx); err != nil {
-    return err
-  }
-  return nil
-}
-
-func runApt(ctx context.Context, args ...string) (string, error) {
-  var out string
-  for attempt := 0; attempt < 10; attempt++ {
-    var err error
-    out, err = runAptOnce(ctx, args...)
-    if err == nil {
-      return out, nil
-    }
-    if strings.Contains(out, "password is required") {
-      return out, errors.New("docker install needs passwordless sudo for lightningos (re-run install.sh or add /etc/sudoers.d/lightningos)")
-    }
-    if strings.Contains(out, "Could not get lock") || strings.Contains(out, "dpkg frontend lock") || strings.Contains(out, "dpkg/lock") {
-      time.Sleep(3 * time.Second)
-      continue
-    }
-    return out, fmt.Errorf("apt-get failed: %s", strings.TrimSpace(out))
-  }
-  return out, errors.New("apt-get blocked by dpkg lock")
-}
-
-func runAptOnce(ctx context.Context, args ...string) (string, error) {
-  aptPath := "/usr/bin/apt-get"
-  systemdArgs := append([]string{"--wait", "--pipe", "--collect", aptPath}, args...)
-  out, err := system.RunCommandWithSudo(ctx, "systemd-run", systemdArgs...)
-  if err == nil {
-    return out, nil
-  }
-  if strings.Contains(out, "password is required") {
-    return out, err
-  }
-  fallbackOut, fallbackErr := system.RunCommandWithSudo(ctx, "apt-get", args...)
-  if fallbackErr == nil {
-    return fallbackOut, nil
-  }
-  if strings.TrimSpace(fallbackOut) == "" {
-    return out, err
-  }
-  return fallbackOut, fallbackErr
-}
-
-func composeBaseArgs(appRoot string, composePath string) []string {
-  envPath := filepath.Join(appRoot, ".env")
-  args := []string{}
-  if fileExists(envPath) {
-    args = append(args, "--env-file", envPath)
-  }
-  args = append(args, "--project-directory", appRoot, "-f", composePath)
-  return args
-}
-
-func runCompose(ctx context.Context, appRoot string, composePath string, args ...string) error {
-  cmd, baseArgs, err := resolveCompose(ctx)
-  if err != nil {
-    return err
-  }
-  fullArgs := append(baseArgs, composeBaseArgs(appRoot, composePath)...)
-  fullArgs = append(fullArgs, args...)
-  if _, err := system.RunCommandWithSudo(ctx, cmd, fullArgs...); err != nil {
-    return err
-  }
-  return nil
-}
-
-func getComposeStatus(ctx context.Context, appRoot string, composePath string, service string) (string, error) {
-  cmd, baseArgs, err := resolveCompose(ctx)
-  if err != nil {
-    return "unknown", err
-  }
-  fullArgs := append(baseArgs, composeBaseArgs(appRoot, composePath)...)
-  fullArgs = append(fullArgs, "ps", "--services", "--filter", "status=running")
-  out, err := system.RunCommandWithSudo(ctx, cmd, fullArgs...)
-  if err != nil {
-    return "unknown", err
-  }
-  for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-    if strings.TrimSpace(line) == service {
-      return "running", nil
-    }
-  }
-  return "stopped", nil
-}
-
-func composeContainerID(ctx context.Context, appRoot string, composePath string, service string) (string, error) {
-  cmd, baseArgs, err := resolveCompose(ctx)
-  if err != nil {
-    return "", err
-  }
-  fullArgs := append(baseArgs, composeBaseArgs(appRoot, composePath)...)
-  fullArgs = append(fullArgs, "ps", "-q", service)
-  out, err := system.RunCommandWithSudo(ctx, cmd, fullArgs...)
-  if err != nil {
-    return "", err
-  }
-  return strings.TrimSpace(out), nil
-}
-
 func syncLndgDbPassword(ctx context.Context, paths lndgPaths) error {
   password := readEnvValue(paths.EnvPath, "LNDG_DB_PASSWORD")
   if password == "" {
@@ -827,47 +512,6 @@ func updateLndGrpcOptions(lines []string, gateway string) ([]string, bool) {
   return updated, changed
 }
 
-func resolveCompose(ctx context.Context) (string, []string, error) {
-  out, err := system.RunCommandWithSudo(ctx, "docker", "compose", "version")
-  if err == nil {
-    return "docker", []string{"compose"}, nil
-  }
-  if strings.Contains(out, "password is required") || strings.Contains(err.Error(), "password is required") {
-    return "", nil, errors.New("docker compose requires passwordless sudo for lightningos")
-  }
-  out, err = system.RunCommandWithSudo(ctx, "docker-compose", "version")
-  if err == nil {
-    return "docker-compose", []string{}, nil
-  }
-  if strings.Contains(out, "password is required") || strings.Contains(err.Error(), "password is required") {
-    return "", nil, errors.New("docker-compose requires passwordless sudo for lightningos")
-  }
-  return "", nil, errors.New("docker compose not available (install docker-compose-plugin or docker-compose)")
-}
-
-func ensureFile(path string, content string) error {
-  if fileExists(path) {
-    current, err := os.ReadFile(path)
-    if err == nil && string(current) == content {
-      return nil
-    }
-  }
-  return writeFile(path, content, 0640)
-}
-
-func ensureFileWithChange(path string, content string) (bool, error) {
-  if fileExists(path) {
-    current, err := os.ReadFile(path)
-    if err == nil && string(current) == content {
-      return false, nil
-    }
-  }
-  if err := writeFile(path, content, 0640); err != nil {
-    return false, err
-  }
-  return true, nil
-}
-
 func lndgBuildHash() string {
   sum := sha256.Sum256([]byte(lndgDockerfile + "\n" + lndgEntrypoint))
   return hex.EncodeToString(sum[:])
@@ -911,62 +555,6 @@ func ensureLndgLogFile(path string) error {
   }
   if err := file.Close(); err != nil {
     return fmt.Errorf("failed to close %s: %w", path, err)
-  }
-  return nil
-}
-
-func writeFile(path string, content string, mode os.FileMode) error {
-  if err := os.WriteFile(path, []byte(content), mode); err != nil {
-    return fmt.Errorf("failed to write %s: %w", path, err)
-  }
-  return nil
-}
-
-func fileExists(path string) bool {
-  info, err := os.Stat(path)
-  return err == nil && !info.IsDir()
-}
-
-func randomToken(size int) (string, error) {
-  buf := make([]byte, size)
-  if _, err := rand.Read(buf); err != nil {
-    return "", err
-  }
-  return base64.RawURLEncoding.EncodeToString(buf), nil
-}
-
-func readEnvValue(path string, key string) string {
-  content, err := os.ReadFile(path)
-  if err != nil {
-    return ""
-  }
-  for _, line := range strings.Split(string(content), "\n") {
-    if strings.HasPrefix(line, key+"=") {
-      return strings.TrimPrefix(line, key+"=")
-    }
-  }
-  return ""
-}
-
-func readSecretFile(path string) string {
-  content, err := os.ReadFile(path)
-  if err != nil {
-    return ""
-  }
-  return strings.TrimSpace(string(content))
-}
-
-func appendEnvLine(path string, key string, value string) error {
-  if value == "" {
-    return nil
-  }
-  file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
-  if err != nil {
-    return fmt.Errorf("failed to update %s: %w", path, err)
-  }
-  defer file.Close()
-  if _, err := file.WriteString(fmt.Sprintf("%s=%s\n", key, value)); err != nil {
-    return fmt.Errorf("failed to update %s: %w", path, err)
   }
   return nil
 }
@@ -1064,129 +652,6 @@ func lndgRemoteHead(ctx context.Context, ref string) string {
     return ""
   }
   return fields[0]
-}
-
-func stringInSlice(value string, items []string) bool {
-  for _, item := range items {
-    if item == value {
-      return true
-    }
-  }
-  return false
-}
-
-func splitEnvList(value string) []string {
-  if value == "" {
-    return []string{}
-  }
-  parts := strings.Split(value, ",")
-  items := []string{}
-  for _, part := range parts {
-    trimmed := strings.TrimSpace(part)
-    if trimmed != "" {
-      items = append(items, trimmed)
-    }
-  }
-  return items
-}
-
-func mergeUnique(base []string, extra []string) []string {
-  merged := append([]string{}, base...)
-  for _, value := range extra {
-    if !stringInSlice(value, merged) {
-      merged = append(merged, value)
-    }
-  }
-  return merged
-}
-
-func setEnvValue(path string, key string, value string) error {
-  content, err := os.ReadFile(path)
-  if err != nil {
-    return fmt.Errorf("failed to read %s: %w", path, err)
-  }
-  lines := []string{}
-  for _, line := range strings.Split(string(content), "\n") {
-    if strings.HasPrefix(line, key+"=") {
-      continue
-    }
-    lines = append(lines, line)
-  }
-  lines = append(lines, fmt.Sprintf("%s=%s", key, value))
-  if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0600); err != nil {
-    return fmt.Errorf("failed to update %s: %w", path, err)
-  }
-  return nil
-}
-
-type composeRelease struct {
-  TagName string `json:"tag_name"`
-}
-
-func installComposePluginBinary(ctx context.Context) error {
-  if fileExists("/usr/lib/docker/cli-plugins/docker-compose") || fileExists("/usr/local/lib/docker/cli-plugins/docker-compose") {
-    return nil
-  }
-  tag := fetchLatestComposeTag(ctx)
-  if tag == "" {
-    tag = "v2.32.4"
-  }
-  arch := mapComposeArch(runtime.GOARCH)
-  if arch == "" {
-    return fmt.Errorf("unsupported architecture for docker compose: %s", runtime.GOARCH)
-  }
-  url := fmt.Sprintf("https://github.com/docker/compose/releases/download/%s/docker-compose-linux-%s", tag, arch)
-  if _, err := exec.LookPath("curl"); err != nil {
-    if _, err := runApt(ctx, "install", "-y", "curl"); err != nil {
-      return err
-    }
-  }
-  targetPath := "/usr/local/lib/docker/cli-plugins/docker-compose"
-  script := fmt.Sprintf("mkdir -p /usr/local/lib/docker/cli-plugins && curl -fsSL -o %s %s && chmod 0755 %s", targetPath, url, targetPath)
-  if _, err := system.RunCommandWithSudo(ctx, "systemd-run", "--wait", "--pipe", "--collect", "/bin/sh", "-c", script); err == nil {
-    return nil
-  }
-  targetPath = "/usr/lib/docker/cli-plugins/docker-compose"
-  script = fmt.Sprintf("mkdir -p /usr/lib/docker/cli-plugins && curl -fsSL -o %s %s && chmod 0755 %s", targetPath, url, targetPath)
-  if _, err := system.RunCommandWithSudo(ctx, "systemd-run", "--wait", "--pipe", "--collect", "/bin/sh", "-c", script); err == nil {
-    return nil
-  }
-  return errors.New("failed to install docker compose plugin binary")
-}
-
-func fetchLatestComposeTag(ctx context.Context) string {
-  req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/docker/compose/releases/latest", nil)
-  if err != nil {
-    return ""
-  }
-  resp, err := http.DefaultClient.Do(req)
-  if err != nil {
-    return ""
-  }
-  defer resp.Body.Close()
-  if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-    return ""
-  }
-  body, err := io.ReadAll(resp.Body)
-  if err != nil {
-    return ""
-  }
-  var release composeRelease
-  if err := json.Unmarshal(body, &release); err != nil {
-    return ""
-  }
-  return strings.TrimSpace(release.TagName)
-}
-
-func mapComposeArch(goarch string) string {
-  switch goarch {
-  case "amd64":
-    return "x86_64"
-  case "arm64":
-    return "aarch64"
-  default:
-    return ""
-  }
 }
 
 const lndgDockerfile = `FROM python:3.11-slim
