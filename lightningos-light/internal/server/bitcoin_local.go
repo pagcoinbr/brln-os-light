@@ -384,6 +384,36 @@ func parseBitcoinCorePrune(raw string) (bool, int) {
   return pruned, pruneMiB
 }
 
+func parseBitcoinCoreRPCConfig(raw string) (string, string, string, string) {
+  var user string
+  var pass string
+  var zmqBlock string
+  var zmqTx string
+  for _, line := range strings.Split(raw, "\n") {
+    trimmed := strings.TrimSpace(line)
+    if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+      continue
+    }
+    parts := strings.SplitN(trimmed, "=", 2)
+    if len(parts) != 2 {
+      continue
+    }
+    key := strings.TrimSpace(parts[0])
+    value := strings.TrimSpace(parts[1])
+    switch key {
+    case "rpcuser":
+      user = value
+    case "rpcpassword":
+      pass = value
+    case "zmqpubrawblock":
+      zmqBlock = value
+    case "zmqpubrawtx":
+      zmqTx = value
+    }
+  }
+  return user, pass, zmqBlock, zmqTx
+}
+
 func updateBitcoinCoreConfig(raw string, mode string, pruneMiB int) string {
   trimmed := strings.TrimRight(sanitizeBitcoinCoreConfig(raw), "\n")
   lines := []string{}

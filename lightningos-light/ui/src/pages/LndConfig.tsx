@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getLndConfig, updateLndConfig, updateLndRawConfig } from '../api'
+import { getBitcoinSource, getLndConfig, setBitcoinSource, updateLndConfig, updateLndRawConfig } from '../api'
 
 export default function LndConfig() {
   const [config, setConfig] = useState<any>(null)
@@ -11,6 +11,8 @@ export default function LndConfig() {
   const [raw, setRaw] = useState('')
   const [advanced, setAdvanced] = useState(false)
   const [status, setStatus] = useState('')
+  const [bitcoinSource, setBitcoinSourceState] = useState<'remote' | 'local'>('remote')
+  const [sourceBusy, setSourceBusy] = useState(false)
 
   useEffect(() => {
     getLndConfig().then((data: any) => {
@@ -24,6 +26,11 @@ export default function LndConfig() {
       setMinChan(minVal > 0 ? minVal.toString() : '')
       setMaxChan(maxVal > 0 ? maxVal.toString() : '')
       setRaw(data.raw_user_conf || '')
+    }).catch(() => null)
+    getBitcoinSource().then((data: any) => {
+      if (data?.source === 'local' || data?.source === 'remote') {
+        setBitcoinSourceState(data.source)
+      }
     }).catch(() => null)
   }, [])
 
@@ -67,12 +74,48 @@ export default function LndConfig() {
     }
   }
 
+  const handleToggleSource = async () => {
+    if (sourceBusy) return
+    const next = bitcoinSource === 'remote' ? 'local' : 'remote'
+    setSourceBusy(true)
+    setStatus(`Switching to ${next} Bitcoin...`)
+    try {
+      await setBitcoinSource({ source: next })
+      setBitcoinSourceState(next)
+      setStatus(`Bitcoin source set to ${next}. LND is restarting...`)
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'Failed to switch Bitcoin source.')
+    } finally {
+      setSourceBusy(false)
+    }
+  }
+
   return (
     <section className="space-y-6">
       <div className="section-card">
-        <h2 className="text-2xl font-semibold">LND configuration</h2>
-        <p className="text-fog/60">Edit supported values in /data/lnd/lnd.conf.</p>
-        <p className="text-fog/50 text-sm">Advanced editor rewrites the full lnd.conf.</p>
+        <div className="flex items-start justify-between gap-6">
+          <div>
+            <h2 className="text-2xl font-semibold">LND configuration</h2>
+            <p className="text-fog/60">Edit supported values in /data/lnd/lnd.conf.</p>
+            <p className="text-fog/50 text-sm">Advanced editor rewrites the full lnd.conf.</p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <span className="text-xs text-fog/60">Bitcoin source</span>
+            <button
+              className={`relative flex h-9 w-32 items-center rounded-full border border-white/10 bg-ink/60 px-2 transition ${sourceBusy ? 'opacity-70' : 'hover:border-white/30'}`}
+              onClick={handleToggleSource}
+              type="button"
+              disabled={sourceBusy}
+              aria-label="Toggle bitcoin source"
+            >
+              <span
+                className={`absolute top-1 h-7 w-14 rounded-full bg-glow shadow transition-all ${bitcoinSource === 'local' ? 'left-[68px]' : 'left-[6px]'}`}
+              />
+              <span className={`relative z-10 flex-1 text-center text-xs ${bitcoinSource === 'remote' ? 'text-ink' : 'text-fog/60'}`}>Remote</span>
+              <span className={`relative z-10 flex-1 text-center text-xs ${bitcoinSource === 'local' ? 'text-ink' : 'text-fog/60'}`}>Local</span>
+            </button>
+          </div>
+        </div>
         {status && <p className="text-sm text-brass mt-4">{status}</p>}
       </div>
 

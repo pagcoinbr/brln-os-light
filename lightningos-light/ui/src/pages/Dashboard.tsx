@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getBitcoin, getDisk, getLndStatus, getPostgres, getSystem, restartService } from '../api'
+import { getBitcoinActive, getDisk, getLndStatus, getPostgres, getSystem, restartService } from '../api'
 
 export default function Dashboard() {
   const [system, setSystem] = useState<any>(null)
@@ -38,7 +38,7 @@ export default function Dashboard() {
         const [sys, disks, btc, pg, lndStatus] = await Promise.all([
           getSystem(),
           getDisk(),
-          getBitcoin(),
+          getBitcoinActive(),
           getPostgres(),
           getLndStatus()
         ])
@@ -109,7 +109,7 @@ export default function Dashboard() {
         </div>
 
         <div className="section-card">
-          <h3 className="text-lg font-semibold">Bitcoin Remote</h3>
+          <h3 className="text-lg font-semibold">{bitcoin?.mode === 'local' ? 'Bitcoin Local' : 'Bitcoin Remote'}</h3>
           {bitcoin ? (
             <div className="mt-4 text-sm space-y-2">
               <div className="flex justify-between"><span>Host</span><span>{bitcoin.rpchost}</span></div>
@@ -125,7 +125,7 @@ export default function Dashboard() {
               )}
             </div>
           ) : (
-            <p className="text-fog/60 mt-4">Loading bitcoin remote status...</p>
+            <p className="text-fog/60 mt-4">Loading bitcoin status...</p>
           )}
         </div>
 

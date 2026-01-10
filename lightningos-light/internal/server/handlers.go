@@ -273,6 +273,14 @@ type boostPeersResponse struct {
   Results []boostPeerResult `json:"results"`
 }
 
+type bitcoinRPCConfig struct {
+  Host string
+  User string
+  Pass string
+  ZMQBlock string
+  ZMQTx string
+}
+
 func (s *Server) handleBitcoin(w http.ResponseWriter, r *http.Request) {
   ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
   defer cancel()
@@ -283,6 +291,95 @@ func (s *Server) handleBitcoin(w http.ResponseWriter, r *http.Request) {
     return
   }
   writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) handleBitcoinActive(w http.ResponseWriter, r *http.Request) {
+  ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+  defer cancel()
+
+  source := readBitcoinSource()
+  if source == "local" {
+    status, err := s.bitcoinLocalStatusActive(ctx)
+    if err != nil {
+      writeError(w, http.StatusInternalServerError, "bitcoin local status error")
+      return
+    }
+    writeJSON(w, http.StatusOK, status)
+    return
+  }
+
+  status, err := s.bitcoinStatus(ctx)
+  if err != nil {
+    writeError(w, http.StatusInternalServerError, "bitcoin status error")
+    return
+  }
+  writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) handleBitcoinSourceGet(w http.ResponseWriter, r *http.Request) {
+  writeJSON(w, http.StatusOK, map[string]string{"source": readBitcoinSource()})
+}
+
+func (s *Server) handleBitcoinSourcePost(w http.ResponseWriter, r *http.Request) {
+  var req struct {
+    Source string `json:"source"`
+  }
+  if err := readJSON(r, &req); err != nil {
+    writeError(w, http.StatusBadRequest, "invalid json")
+    return
+  }
+  source := strings.ToLower(strings.TrimSpace(req.Source))
+  if source == "" {
+    source = "remote"
+  }
+  if source != "remote" && source != "local" {
+    writeError(w, http.StatusBadRequest, "source must be local or remote")
+    return
+  }
+
+  remoteUser, remotePass := readBitcoinSecrets()
+  if remoteUser == "" || remotePass == "" {
+    writeError(w, http.StatusBadRequest, "remote RPC credentials missing")
+    return
+  }
+  remoteCfg := bitcoinRPCConfig{
+    Host: s.cfg.BitcoinRemote.RPCHost,
+    User: remoteUser,
+    Pass: remotePass,
+    ZMQBlock: s.cfg.BitcoinRemote.ZMQRawBlock,
+    ZMQTx: s.cfg.BitcoinRemote.ZMQRawTx,
+  }
+
+  localCfg, err := readBitcoinLocalRPCConfig(r.Context())
+  if err != nil && source == "local" {
+    writeError(w, http.StatusInternalServerError, err.Error())
+    return
+  }
+  if err != nil && source != "local" {
+    localCfg = bitcoinRPCConfig{
+      Host: "127.0.0.1:8332",
+      ZMQBlock: "tcp://127.0.0.1:28332",
+      ZMQTx: "tcp://127.0.0.1:28333",
+    }
+  }
+
+  if err := updateLNDConfBitcoinSource(source, remoteCfg, localCfg); err != nil {
+    writeError(w, http.StatusInternalServerError, "failed to update lnd.conf")
+    return
+  }
+  if err := storeBitcoinSource(source); err != nil {
+    s.logger.Printf("failed to store bitcoin source: %v", err)
+  }
+
+  ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+  defer cancel()
+  if err := system.SystemctlRestart(ctx, "lnd"); err != nil {
+    writeError(w, http.StatusInternalServerError, "lnd restart failed")
+    return
+  }
+  s.markLNDRestart()
+
+  writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) bitcoinStatus(ctx context.Context) (bitcoinStatus, error) {
@@ -323,6 +420,56 @@ func (s *Server) bitcoinStatus(ctx context.Context) (bitcoinStatus, error) {
   status.ZMQRawTxOk = testTCP(s.cfg.BitcoinRemote.ZMQRawTx)
 
   return status, nil
+}
+
+func (s *Server) bitcoinLocalStatusActive(ctx context.Context) (bitcoinStatus, error) {
+  paths := bitcoinCoreAppPaths()
+  status := bitcoinStatus{
+    Mode: "local",
+    RPCHost: "127.0.0.1:8332",
+    ZMQRawBlock: "tcp://127.0.0.1:28332",
+    ZMQRawTx: "tcp://127.0.0.1:28333",
+  }
+  if !fileExists(paths.ComposePath) {
+    return status, nil
+  }
+  info, _, err := fetchBitcoinLocalInfo(ctx, paths)
+  if err == nil {
+    status.RPCOk = true
+    status.Chain = info.Chain
+    status.Blocks = info.Blocks
+    status.Headers = info.Headers
+    status.VerificationProgress = info.VerificationProgress
+    status.InitialBlockDownload = info.InitialBlockDownload
+    status.BestBlockHash = info.BestBlockHash
+  }
+  status.ZMQRawBlockOk = testTCP(status.ZMQRawBlock)
+  status.ZMQRawTxOk = testTCP(status.ZMQRawTx)
+  return status, nil
+}
+
+func readBitcoinLocalRPCConfig(ctx context.Context) (bitcoinRPCConfig, error) {
+  paths := bitcoinCoreAppPaths()
+  if !fileExists(paths.ComposePath) {
+    return bitcoinRPCConfig{}, errors.New("bitcoin core is not installed")
+  }
+  raw, err := readBitcoinCoreConfig(ctx, paths)
+  if err != nil {
+    return bitcoinRPCConfig{}, fmt.Errorf("failed to read local bitcoin.conf: %w", err)
+  }
+  user, pass, zmqBlock, zmqTx := parseBitcoinCoreRPCConfig(raw)
+  if user == "" || pass == "" {
+    return bitcoinRPCConfig{}, errors.New("local RPC credentials missing")
+  }
+  zmqBlock = normalizeLocalZMQ(zmqBlock, "tcp://127.0.0.1:28332")
+  zmqTx = normalizeLocalZMQ(zmqTx, "tcp://127.0.0.1:28333")
+  return bitcoinRPCConfig{
+    Host: "127.0.0.1:8332",
+    User: user,
+    Pass: pass,
+    ZMQBlock: zmqBlock,
+    ZMQTx: zmqTx,
+  }, nil
 }
 
 func readBitcoinSecrets() (string, string) {
@@ -451,6 +598,7 @@ func (s *Server) handleWizardBitcoinRemote(w http.ResponseWriter, r *http.Reques
   }
 
   if err := updateLNDConfRPC(
+    ctx,
     user,
     pass,
     s.cfg.BitcoinRemote.RPCHost,
@@ -460,6 +608,8 @@ func (s *Server) handleWizardBitcoinRemote(w http.ResponseWriter, r *http.Reques
     writeError(w, http.StatusInternalServerError, "failed to update lnd.conf")
     return
   }
+
+  _ = storeBitcoinSource("remote")
 
   _ = system.SystemctlRestart(ctx, "lnd")
 
@@ -1610,12 +1760,96 @@ func storeBitcoinSecrets(user, pass string) error {
   return os.WriteFile(secretsPath, []byte(strings.Join(lines, "\n")), 0660)
 }
 
-func updateLNDConfRPC(user, pass, host, zmqBlock, zmqTx string) error {
+func readBitcoinSource() string {
+  if value := strings.TrimSpace(os.Getenv("BITCOIN_SOURCE")); value != "" {
+    return strings.ToLower(value)
+  }
+  content, err := os.ReadFile(secretsPath)
+  if err != nil {
+    return "remote"
+  }
+  for _, line := range strings.Split(string(content), "\n") {
+    if strings.HasPrefix(line, "BITCOIN_SOURCE=") {
+      value := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "BITCOIN_SOURCE=")))
+      if value == "local" || value == "remote" {
+        return value
+      }
+    }
+  }
+  return "remote"
+}
+
+func storeBitcoinSource(source string) error {
+  trimmed := strings.ToLower(strings.TrimSpace(source))
+  if trimmed == "" {
+    trimmed = "remote"
+  }
+  if trimmed != "local" && trimmed != "remote" {
+    return errors.New("invalid bitcoin source")
+  }
+  _ = os.Setenv("BITCOIN_SOURCE", trimmed)
+  content, _ := os.ReadFile(secretsPath)
+  lines := []string{}
+  if len(content) > 0 {
+    lines = strings.Split(string(content), "\n")
+  }
+  hasKey := false
+  for i, line := range lines {
+    if strings.HasPrefix(line, "BITCOIN_SOURCE=") {
+      lines[i] = "BITCOIN_SOURCE=" + trimmed
+      hasKey = true
+    }
+  }
+  if !hasKey {
+    lines = append(lines, "BITCOIN_SOURCE="+trimmed)
+  }
+  if err := os.MkdirAll(filepath.Dir(secretsPath), 0750); err != nil {
+    return err
+  }
+  return os.WriteFile(secretsPath, []byte(strings.Join(lines, "\n")), 0660)
+}
+
+func normalizeLocalZMQ(value string, fallback string) string {
+  trimmed := strings.TrimSpace(value)
+  if trimmed == "" {
+    return fallback
+  }
+  if strings.HasPrefix(trimmed, "tcp://0.0.0.0:") {
+    return "tcp://127.0.0.1:" + strings.TrimPrefix(trimmed, "tcp://0.0.0.0:")
+  }
+  if strings.HasPrefix(trimmed, "0.0.0.0:") {
+    return "tcp://127.0.0.1:" + strings.TrimPrefix(trimmed, "0.0.0.0:")
+  }
+  if strings.HasPrefix(trimmed, "tcp://") {
+    return trimmed
+  }
+  return "tcp://" + trimmed
+}
+
+func updateLNDConfRPC(ctx context.Context, user, pass, host, zmqBlock, zmqTx string) error {
+  remoteCfg := bitcoinRPCConfig{
+    Host: host,
+    User: user,
+    Pass: pass,
+    ZMQBlock: zmqBlock,
+    ZMQTx: zmqTx,
+  }
+  localCfg, err := readBitcoinLocalRPCConfig(ctx)
+  if err != nil {
+    localCfg = bitcoinRPCConfig{
+      Host: "127.0.0.1:8332",
+      ZMQBlock: "tcp://127.0.0.1:28332",
+      ZMQTx: "tcp://127.0.0.1:28333",
+    }
+  }
+  return updateLNDConfBitcoinSource("remote", remoteCfg, localCfg)
+}
+
+func updateLNDConfBitcoinSource(active string, remoteCfg bitcoinRPCConfig, localCfg bitcoinRPCConfig) error {
   content, err := os.ReadFile(lndConfPath)
   if err != nil {
     return err
   }
-
   raw := strings.ReplaceAll(string(content), "\r\n", "\n")
   lines := strings.Split(raw, "\n")
 
@@ -1641,21 +1875,14 @@ func updateLNDConfRPC(user, pass, host, zmqBlock, zmqTx string) error {
     end = len(lines)
   }
 
-  updates := map[string]string{
-    "bitcoind.rpcuser": user,
-    "bitcoind.rpcpass": pass,
-  }
-  if strings.TrimSpace(host) != "" {
-    updates["bitcoind.rpchost"] = host
-  }
-  if strings.TrimSpace(zmqBlock) != "" {
-    updates["bitcoind.zmqpubrawblock"] = zmqBlock
-  }
-  if strings.TrimSpace(zmqTx) != "" {
-    updates["bitcoind.zmqpubrawtx"] = zmqTx
+  keys := []string{
+    "bitcoind.rpchost",
+    "bitcoind.rpcuser",
+    "bitcoind.rpcpass",
+    "bitcoind.zmqpubrawblock",
+    "bitcoind.zmqpubrawtx",
   }
 
-  seen := map[string]bool{}
   for i := start + 1; i < end; i++ {
     trimmed := strings.TrimSpace(lines[i])
     if trimmed == "" {
@@ -1664,29 +1891,39 @@ func updateLNDConfRPC(user, pass, host, zmqBlock, zmqTx string) error {
     for strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
       trimmed = strings.TrimSpace(strings.TrimLeft(trimmed, "#;"))
     }
-    parts := strings.SplitN(trimmed, "=", 2)
-    if len(parts) != 2 {
-      continue
+    for _, key := range keys {
+      if strings.HasPrefix(trimmed, key+"=") {
+        lines[i] = ""
+        break
+      }
     }
-    key := strings.TrimSpace(parts[0])
-    value, ok := updates[key]
-    if !ok {
-      continue
-    }
-    lines[i] = key + "=" + value
-    seen[key] = true
   }
 
-  extra := []string{}
-  for key, value := range updates {
-    if seen[key] {
-      continue
-    }
-    extra = append(extra, key+"="+value)
+  remotePrefix := "# "
+  localPrefix := "# "
+  if active == "remote" {
+    remotePrefix = ""
+  } else if active == "local" {
+    localPrefix = ""
   }
-  if len(extra) > 0 {
-    lines = append(lines[:end], append(extra, lines[end:]...)...)
+
+  block := []string{
+    "# LightningOS Bitcoin Remote",
+    remotePrefix + "bitcoind.rpchost=" + remoteCfg.Host,
+    remotePrefix + "bitcoind.rpcuser=" + remoteCfg.User,
+    remotePrefix + "bitcoind.rpcpass=" + remoteCfg.Pass,
+    remotePrefix + "bitcoind.zmqpubrawblock=" + remoteCfg.ZMQBlock,
+    remotePrefix + "bitcoind.zmqpubrawtx=" + remoteCfg.ZMQTx,
+    "",
+    "# LightningOS Bitcoin Local",
+    localPrefix + "bitcoind.rpchost=" + localCfg.Host,
+    localPrefix + "bitcoind.rpcuser=" + localCfg.User,
+    localPrefix + "bitcoind.rpcpass=" + localCfg.Pass,
+    localPrefix + "bitcoind.zmqpubrawblock=" + localCfg.ZMQBlock,
+    localPrefix + "bitcoind.zmqpubrawtx=" + localCfg.ZMQTx,
   }
+
+  lines = append(lines[:end], append(block, lines[end:]...)...)
 
   return os.WriteFile(lndConfPath, []byte(strings.Join(lines, "\n")), 0660)
 }
