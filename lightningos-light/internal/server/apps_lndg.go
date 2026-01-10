@@ -718,6 +718,14 @@ if not db_password:
 allowed_hosts = [h.strip() for h in os.environ.get("LNDG_ALLOWED_HOSTS", "").split(",") if h.strip()]
 csrf_trusted = [o.strip() for o in os.environ.get("LNDG_CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
 
+filtered = []
+for line in raw:
+  stripped = line.strip()
+  if stripped.startswith("CSRF_COOKIE_NAME") or stripped.startswith("SESSION_COOKIE_NAME"):
+    continue
+  filtered.append(line)
+raw = filtered
+
 replacement = [
   "DATABASES = {",
   "    'default': {",
@@ -740,7 +748,6 @@ if csrf_trusted:
     raw += ["CSRF_COOKIE_SECURE = False", "SESSION_COOKIE_SECURE = False"]
   raw += ["CSRF_COOKIE_DOMAIN = None", "SESSION_COOKIE_DOMAIN = None"]
   raw += ["CSRF_COOKIE_SAMESITE = 'Lax'", "SESSION_COOKIE_SAMESITE = 'Lax'"]
-raw += ["CSRF_COOKIE_NAME = 'lndg_csrftoken'", "SESSION_COOKIE_NAME = 'lndg_sessionid'"]
 with open(path, "w", encoding="utf-8") as f:
   f.write("\n".join(raw))
 PY
