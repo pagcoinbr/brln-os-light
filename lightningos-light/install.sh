@@ -271,6 +271,15 @@ configure_sudoers() {
   docker_path=$(command -v docker || true)
   docker_compose_path=$(command -v docker-compose || true)
   systemd_run_path=$(command -v systemd-run || true)
+  if [[ -z "$docker_path" ]]; then
+    docker_path="/usr/bin/docker"
+  fi
+  if [[ -z "$docker_compose_path" ]]; then
+    docker_compose_path="/usr/bin/docker-compose"
+  fi
+  if [[ -z "$systemd_run_path" ]]; then
+    systemd_run_path="/usr/bin/systemd-run"
+  fi
   if [[ -z "$systemctl_path" ]]; then
     print_warn "systemctl not found; skipping sudoers setup"
     return
