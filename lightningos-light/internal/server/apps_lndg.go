@@ -242,11 +242,6 @@ func ensureLndgEnv(ctx context.Context, paths lndgPaths) error {
         return err
       }
     }
-    if readEnvValue(paths.EnvPath, "LNDG_CUSTOM_COOKIES") == "" {
-      if err := appendEnvLine(paths.EnvPath, "LNDG_CUSTOM_COOKIES", "1"); err != nil {
-        return err
-      }
-    }
     if !fileExists(paths.AdminPasswordPath) {
       adminPassword := readEnvValue(paths.EnvPath, "LNDG_ADMIN_PASSWORD")
       if adminPassword == "" {
@@ -329,7 +324,6 @@ func ensureLndgEnv(ctx context.Context, paths lndgPaths) error {
     "LNDG_LND_DIR=/root/.lnd",
     "LNDG_GIT_REF=" + gitRef,
     "LNDG_GIT_SHA=" + gitSha,
-    "LNDG_CUSTOM_COOKIES=1",
     "LNDG_ALLOWED_HOSTS=" + allowedHostsValue,
     "LNDG_CSRF_TRUSTED_ORIGINS=" + csrfOriginsValue,
     "",
@@ -705,22 +699,6 @@ start = None
 depth = 0
 end = None
 
-strip_keys = (
-  "ALLOWED_HOSTS =",
-  "CSRF_TRUSTED_ORIGINS =",
-  "CSRF_COOKIE_SECURE =",
-  "SESSION_COOKIE_SECURE =",
-  "CSRF_COOKIE_DOMAIN =",
-  "SESSION_COOKIE_DOMAIN =",
-  "CSRF_COOKIE_SAMESITE =",
-  "SESSION_COOKIE_SAMESITE =",
-  "CSRF_COOKIE_NAME =",
-  "SESSION_COOKIE_NAME =",
-  "CSRF_USE_SESSIONS =",
-  "CSRF_FAILURE_VIEW =",
-)
-raw = [line for line in raw if not any(line.strip().startswith(key) for key in strip_keys)]
-
 for i, line in enumerate(raw):
   if start is None and line.strip().startswith("DATABASES"):
     start = i
@@ -762,26 +740,7 @@ if csrf_trusted:
     raw += ["CSRF_COOKIE_SECURE = False", "SESSION_COOKIE_SECURE = False"]
   raw += ["CSRF_COOKIE_DOMAIN = None", "SESSION_COOKIE_DOMAIN = None"]
   raw += ["CSRF_COOKIE_SAMESITE = 'Lax'", "SESSION_COOKIE_SAMESITE = 'Lax'"]
-if os.environ.get("LNDG_CUSTOM_COOKIES") == "0":
-  raw += ["CSRF_COOKIE_NAME = 'csrftoken'", "SESSION_COOKIE_NAME = 'sessionid'"]
-else:
-  raw += ["CSRF_COOKIE_NAME = 'lndg_csrftoken'", "SESSION_COOKIE_NAME = 'lndg_sessionid'"]
-raw += ["CSRF_USE_SESSIONS = True"]
-
-debug_path = "/app/lndg/csrf_debug.py"
-debug_contents = """from django.views.csrf import csrf_failure as default_csrf_failure
-
-def csrf_failure(request, reason=""):
-    origin = request.META.get("HTTP_ORIGIN")
-    referer = request.META.get("HTTP_REFERER")
-    host = request.get_host()
-    cookies = ",".join(request.COOKIES.keys())
-    print(f"CSRF failure: reason={reason} origin={origin} referer={referer} host={host} cookies={cookies}", flush=True)
-    return default_csrf_failure(request, reason)
-"""
-with open(debug_path, "w", encoding="utf-8") as f:
-  f.write(debug_contents)
-raw += ["CSRF_FAILURE_VIEW = 'lndg.csrf_debug.csrf_failure'"]
+raw += ["CSRF_COOKIE_NAME = 'lndg_csrftoken'", "SESSION_COOKIE_NAME = 'lndg_sessionid'"]
 with open(path, "w", encoding="utf-8") as f:
   f.write("\n".join(raw))
 PY
