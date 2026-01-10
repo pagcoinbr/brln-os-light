@@ -371,14 +371,24 @@ func ensureLndgEnv(ctx context.Context, paths lndgPaths) error {
         return err
       }
     }
-    if readEnvValue(paths.EnvPath, "LNDG_ALLOWED_HOSTS") == "" && allowedHostsValue != "" {
-      if err := appendEnvLine(paths.EnvPath, "LNDG_ALLOWED_HOSTS", allowedHostsValue); err != nil {
-        return err
+    if allowedHostsValue != "" {
+      existing := splitEnvList(readEnvValue(paths.EnvPath, "LNDG_ALLOWED_HOSTS"))
+      merged := mergeUnique(existing, allowedHosts)
+      mergedValue := strings.Join(merged, ",")
+      if mergedValue != "" && mergedValue != strings.Join(existing, ",") {
+        if err := setEnvValue(paths.EnvPath, "LNDG_ALLOWED_HOSTS", mergedValue); err != nil {
+          return err
+        }
       }
     }
-    if readEnvValue(paths.EnvPath, "LNDG_CSRF_TRUSTED_ORIGINS") == "" && csrfOriginsValue != "" {
-      if err := appendEnvLine(paths.EnvPath, "LNDG_CSRF_TRUSTED_ORIGINS", csrfOriginsValue); err != nil {
-        return err
+    if csrfOriginsValue != "" {
+      existing := splitEnvList(readEnvValue(paths.EnvPath, "LNDG_CSRF_TRUSTED_ORIGINS"))
+      merged := mergeUnique(existing, csrfOrigins)
+      mergedValue := strings.Join(merged, ",")
+      if mergedValue != "" && mergedValue != strings.Join(existing, ",") {
+        if err := setEnvValue(paths.EnvPath, "LNDG_CSRF_TRUSTED_ORIGINS", mergedValue); err != nil {
+          return err
+        }
       }
     }
     return nil
@@ -858,9 +868,13 @@ func defaultLndgHosts(ctx context.Context) ([]string, []string) {
   origins := []string{}
   for _, host := range hosts {
     for _, scheme := range []string{"http", "https"} {
-      origin := fmt.Sprintf("%s://%s:8889", scheme, host)
+      origin := fmt.Sprintf("%s://%s", scheme, host)
       if !stringInSlice(origin, origins) {
         origins = append(origins, origin)
+      }
+      originWithPort := fmt.Sprintf("%s://%s:8889", scheme, host)
+      if !stringInSlice(originWithPort, origins) {
+        origins = append(origins, originWithPort)
       }
     }
   }
@@ -912,6 +926,50 @@ func stringInSlice(value string, items []string) bool {
     }
   }
   return false
+}
+
+func splitEnvList(value string) []string {
+  if value == "" {
+    return []string{}
+  }
+  parts := strings.Split(value, ",")
+  items := []string{}
+  for _, part := range parts {
+    trimmed := strings.TrimSpace(part)
+    if trimmed != "" {
+      items = append(items, trimmed)
+    }
+  }
+  return items
+}
+
+func mergeUnique(base []string, extra []string) []string {
+  merged := append([]string{}, base...)
+  for _, value := range extra {
+    if !stringInSlice(value, merged) {
+      merged = append(merged, value)
+    }
+  }
+  return merged
+}
+
+func setEnvValue(path string, key string, value string) error {
+  content, err := os.ReadFile(path)
+  if err != nil {
+    return fmt.Errorf("failed to read %s: %w", path, err)
+  }
+  lines := []string{}
+  for _, line := range strings.Split(string(content), "\n") {
+    if strings.HasPrefix(line, key+"=") {
+      continue
+    }
+    lines = append(lines, line)
+  }
+  lines = append(lines, fmt.Sprintf("%s=%s", key, value))
+  if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0600); err != nil {
+    return fmt.Errorf("failed to update %s: %w", path, err)
+  }
+  return nil
 }
 
 type composeRelease struct {
