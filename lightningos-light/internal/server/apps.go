@@ -213,13 +213,13 @@ func (s *Server) installLndg(ctx context.Context) error {
     return fmt.Errorf("failed to create app db directory: %w", err)
   }
 
-  if err := ensureFile(paths.DockerfilePath, lndgDockerfile); err != nil {
+  if _, err := ensureFileWithChange(paths.DockerfilePath, lndgDockerfile); err != nil {
     return err
   }
-  if err := ensureFile(paths.EntrypointPath, lndgEntrypoint); err != nil {
+  if _, err := ensureFileWithChange(paths.EntrypointPath, lndgEntrypoint); err != nil {
     return err
   }
-  if err := ensureFile(paths.ComposePath, lndgComposeContents(paths)); err != nil {
+  if _, err := ensureFileWithChange(paths.ComposePath, lndgComposeContents(paths)); err != nil {
     return err
   }
 
@@ -264,13 +264,18 @@ func (s *Server) startLndg(ctx context.Context) error {
   if err := os.MkdirAll(paths.PgDir, 0750); err != nil {
     return fmt.Errorf("failed to create app db directory: %w", err)
   }
-  if err := ensureFile(paths.DockerfilePath, lndgDockerfile); err != nil {
+  needsBuild := false
+  if changed, err := ensureFileWithChange(paths.DockerfilePath, lndgDockerfile); err != nil {
     return err
+  } else if changed {
+    needsBuild = true
   }
-  if err := ensureFile(paths.EntrypointPath, lndgEntrypoint); err != nil {
+  if changed, err := ensureFileWithChange(paths.EntrypointPath, lndgEntrypoint); err != nil {
     return err
+  } else if changed {
+    needsBuild = true
   }
-  if err := ensureFile(paths.ComposePath, lndgComposeContents(paths)); err != nil {
+  if _, err := ensureFileWithChange(paths.ComposePath, lndgComposeContents(paths)); err != nil {
     return err
   }
   if err := ensureLndgEnv(ctx, paths); err != nil {
@@ -281,6 +286,9 @@ func (s *Server) startLndg(ctx context.Context) error {
   }
   if err := syncLndgDbPassword(ctx, paths); err != nil {
     return err
+  }
+  if needsBuild {
+    return runCompose(ctx, paths.Root, paths.ComposePath, "up", "-d", "--build", "lndg")
   }
   return runCompose(ctx, paths.Root, paths.ComposePath, "up", "-d", "lndg")
 }
@@ -800,6 +808,19 @@ func ensureFile(path string, content string) error {
     }
   }
   return writeFile(path, content, 0640)
+}
+
+func ensureFileWithChange(path string, content string) (bool, error) {
+  if fileExists(path) {
+    current, err := os.ReadFile(path)
+    if err == nil && string(current) == content {
+      return false, nil
+    }
+  }
+  if err := writeFile(path, content, 0640); err != nil {
+    return false, err
+  }
+  return true, nil
 }
 
 func writeFile(path string, content string, mode os.FileMode) error {
