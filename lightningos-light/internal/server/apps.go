@@ -1316,5 +1316,7 @@ if [ ! -f "$ADMIN_FILE" ]; then
   printf "%s\n" "$LNDG_ADMIN_PASSWORD" > "$ADMIN_FILE"
 fi
 
-exec python controller.py runserver 0.0.0.0:8889
+LOG_FILE=/var/log/lndg-controller.log
+touch "$LOG_FILE"
+exec sh -c "python controller.py runserver 0.0.0.0:8889 2>&1 | tee -a \"$LOG_FILE\""
 `
