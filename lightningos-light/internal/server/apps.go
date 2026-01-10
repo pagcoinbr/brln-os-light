@@ -199,6 +199,9 @@ func (s *Server) installLndg(ctx context.Context) error {
   if err := ensureDocker(ctx); err != nil {
     return err
   }
+  if err := ensureLndgGrpcAccess(ctx); err != nil {
+    return err
+  }
   paths := lndgAppPaths()
   if err := os.MkdirAll(paths.Root, 0750); err != nil {
     return fmt.Errorf("failed to create app directory: %w", err)
@@ -248,6 +251,9 @@ func (s *Server) uninstallLndg(ctx context.Context) error {
 }
 
 func (s *Server) startLndg(ctx context.Context) error {
+  if err := ensureLndgGrpcAccess(ctx); err != nil {
+    return err
+  }
   paths := lndgAppPaths()
   if err := os.MkdirAll(paths.Root, 0750); err != nil {
     return fmt.Errorf("failed to create app directory: %w", err)
@@ -608,6 +614,106 @@ func syncLndgDbPassword(ctx context.Context, paths lndgPaths) error {
     return fmt.Errorf("failed to sync lndg db password: %w", lastErr)
   }
   return nil
+}
+
+func ensureLndgGrpcAccess(ctx context.Context) error {
+  gatewayIP, err := dockerGatewayIP(ctx)
+  if err != nil {
+    return err
+  }
+  content, err := os.ReadFile(lndConfPath)
+  if err != nil {
+    return fmt.Errorf("failed to read lnd.conf: %w", err)
+  }
+  lines := strings.Split(strings.TrimRight(string(content), "\n"), "\n")
+  changed := false
+  if !lndConfigHasValue(lines, "tlsextraip", gatewayIP) {
+    lines = append(lines, fmt.Sprintf("tlsextraip=%s", gatewayIP))
+    changed = true
+  }
+  if !lndConfigHasValue(lines, "tlsextradomain", "host.docker.internal") {
+    lines = append(lines, "tlsextradomain=host.docker.internal")
+    changed = true
+  }
+  var rpcChanged bool
+  lines, rpcChanged = ensureLndRpcListen(lines, gatewayIP)
+  changed = changed || rpcChanged
+  if !changed {
+    return nil
+  }
+  if err := os.WriteFile(lndConfPath, []byte(strings.Join(lines, "\n")+"\n"), 0640); err != nil {
+    return fmt.Errorf("failed to update lnd.conf: %w", err)
+  }
+  _, _ = system.RunCommandWithSudo(ctx, "rm", "-f", "/data/lnd/tls.cert", "/data/lnd/tls.key")
+  if _, err := system.RunCommandWithSudo(ctx, "systemctl", "restart", "lnd"); err != nil {
+    return fmt.Errorf("failed to restart lnd: %w", err)
+  }
+  return nil
+}
+
+func dockerGatewayIP(ctx context.Context) (string, error) {
+  out, err := system.RunCommandWithSudo(ctx, "docker", "network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}")
+  if err == nil {
+    ip := strings.TrimSpace(out)
+    if ip != "" && ip != "<no value>" {
+      return ip, nil
+    }
+  }
+  out, err = system.RunCommandWithSudo(ctx, "ip", "-4", "addr", "show", "docker0")
+  if err == nil {
+    fields := strings.Fields(out)
+    for i, token := range fields {
+      if token == "inet" && i+1 < len(fields) {
+        ip := strings.Split(fields[i+1], "/")[0]
+        if ip != "" {
+          return ip, nil
+        }
+      }
+    }
+  }
+  return "", errors.New("unable to determine docker bridge gateway IP")
+}
+
+func lndConfigHasValue(lines []string, key string, value string) bool {
+  target := key + "=" + value
+  for _, line := range lines {
+    trimmed := strings.TrimSpace(line)
+    if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+      continue
+    }
+    if trimmed == target {
+      return true
+    }
+  }
+  return false
+}
+
+func ensureLndRpcListen(lines []string, gateway string) ([]string, bool) {
+  hasListen := false
+  hasGateway := false
+  gatewayLine := fmt.Sprintf("rpclisten=%s:10009", gateway)
+  for _, line := range lines {
+    trimmed := strings.TrimSpace(line)
+    if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+      continue
+    }
+    if strings.HasPrefix(trimmed, "rpclisten=") {
+      hasListen = true
+      if trimmed == gatewayLine {
+        hasGateway = true
+      }
+    }
+  }
+  changed := false
+  if !hasListen {
+    lines = append(lines, "rpclisten=127.0.0.1:10009")
+    lines = append(lines, gatewayLine)
+    changed = true
+  } else if !hasGateway {
+    lines = append(lines, gatewayLine)
+    changed = true
+  }
+  return lines, changed
 }
 
 func resolveCompose(ctx context.Context) (string, []string, error) {
