@@ -49,6 +49,7 @@ type lndgPaths struct {
   Root string
   DataDir string
   PgDir string
+  LogPath string
   ComposePath string
   EnvPath string
   DockerfilePath string
@@ -71,10 +72,12 @@ func lndgAppPaths() lndgPaths {
   root := filepath.Join(appsRoot, "lndg")
   dataDir := filepath.Join(appsDataRoot, "lndg", "data")
   pgDir := filepath.Join(appsDataRoot, "lndg", "pgdata")
+  logPath := filepath.Join(dataDir, "lndg-controller.log")
   return lndgPaths{
     Root: root,
     DataDir: dataDir,
     PgDir: pgDir,
+    LogPath: logPath,
     ComposePath: filepath.Join(root, "docker-compose.yaml"),
     EnvPath: filepath.Join(root, ".env"),
     DockerfilePath: filepath.Join(root, "Dockerfile"),
@@ -215,6 +218,12 @@ func (s *Server) installLndg(ctx context.Context) error {
   }
   if err := os.MkdirAll(paths.PgDir, 0750); err != nil {
     return fmt.Errorf("failed to create app db directory: %w", err)
+  }
+  if err := ensureLndgLogFile(paths.LogPath); err != nil {
+    return err
+  }
+  if err := ensureLndgLogFile(paths.LogPath); err != nil {
+    return err
   }
 
   currentHash := lndgBuildHash()
@@ -357,7 +366,7 @@ func lndgComposeContents(paths lndgPaths) string {
       - /data/lnd:/root/.lnd:ro
       - %s:/app/data:rw
       - %s:/var/log/lndg-controller.log:rw
-`, paths.PgDir, paths.DataDir, filepath.Join(paths.DataDir, "lndg-controller.log"))
+`, paths.PgDir, paths.DataDir, paths.LogPath)
 }
 
 func ensureLndgEnv(ctx context.Context, paths lndgPaths) error {
@@ -870,6 +879,40 @@ func lndgBuildKey(paths lndgPaths, base string) string {
     gitSha = "unknown"
   }
   return base + ":" + gitSha
+}
+
+func ensureLndgLogFile(path string) error {
+  info, err := os.Stat(path)
+  if err == nil {
+    if info.IsDir() {
+      entries, readErr := os.ReadDir(path)
+      if readErr != nil {
+        return fmt.Errorf("failed to inspect %s: %w", path, readErr)
+      }
+      if len(entries) == 0 {
+        if err := os.Remove(path); err != nil {
+          return fmt.Errorf("failed to remove %s: %w", path, err)
+        }
+      } else {
+        backup := path + ".bak-" + time.Now().Format("20060102150405")
+        if err := os.Rename(path, backup); err != nil {
+          return fmt.Errorf("failed to move %s to %s: %w", path, backup, err)
+        }
+      }
+    } else {
+      return nil
+    }
+  } else if !os.IsNotExist(err) {
+    return fmt.Errorf("failed to stat %s: %w", path, err)
+  }
+  file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0640)
+  if err != nil {
+    return fmt.Errorf("failed to create %s: %w", path, err)
+  }
+  if err := file.Close(); err != nil {
+    return fmt.Errorf("failed to close %s: %w", path, err)
+  }
+  return nil
 }
 
 func writeFile(path string, content string, mode os.FileMode) error {
