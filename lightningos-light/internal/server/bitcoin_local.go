@@ -63,6 +63,7 @@ type bitcoinCLIChainInfo struct {
   PruneHeight int64 `json:"pruneheight"`
   PruneTargetSize int64 `json:"prune_target_size"`
   SizeOnDisk int64 `json:"size_on_disk"`
+  BestBlockHash string `json:"bestblockhash"`
 }
 
 type bitcoinCLINetworkInfo struct {
