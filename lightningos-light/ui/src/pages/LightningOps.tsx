@@ -319,7 +319,7 @@ export default function LightningOps() {
               className="btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
               onClick={handleBoostPeers}
               disabled={boostRunning}
-              title="Processo demorado. Aguarde."
+              title="This process can take a while."
             >
               {boostRunning ? 'Boosting...' : 'Boost peers'}
             </button>

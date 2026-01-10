@@ -57,6 +57,9 @@ export default function Wallet() {
   const onchainBalance = summary?.balances?.onchain_sat ?? 0
   const lightningBalance = summary?.balances?.lightning_sat ?? 0
   const activity = summary?.activity ?? []
+  const summaryTone = summaryError && summaryError.toLowerCase().includes('timeout')
+    ? 'text-brass'
+    : 'text-ember'
 
   const handleAddFunds = async () => {
     setShowAddress(true)
@@ -181,7 +184,7 @@ export default function Wallet() {
           <p className="mt-4 text-sm text-brass">{summaryWarning}</p>
         )}
         {summaryError && (
-          <p className="mt-4 text-sm text-ember">Wallet status: {summaryError}</p>
+          <p className={`mt-4 text-sm ${summaryTone}`}>Wallet status: {summaryError}</p>
         )}
         {status && <p className="mt-4 text-sm text-brass">{status}</p>}
       </div>
