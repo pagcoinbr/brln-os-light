@@ -23,7 +23,7 @@ type bitcoinCoreApp struct {
   server *Server
 }
 
-const bitcoinCoreImage = "bitcoin/bitcoin:30.2"
+const bitcoinCoreImage = "bitcoin/bitcoin:latest"
 
 func newBitcoinCoreApp(s *Server) appHandler {
   return bitcoinCoreApp{server: s}
