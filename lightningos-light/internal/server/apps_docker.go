@@ -41,14 +41,9 @@ func installDocker(ctx context.Context) error {
   if _, err := runApt(ctx, "update"); err != nil {
     return err
   }
-  out, err := runApt(ctx, "install", "-y", "docker.io", "docker-compose-plugin")
+  out, err := runApt(ctx, "install", "-y", "docker.io")
   if err != nil {
-    if strings.Contains(out, "Unable to locate package docker-compose-plugin") {
-      out, err = runApt(ctx, "install", "-y", "docker.io", "docker-compose")
-    }
-    if err != nil {
-      return fmt.Errorf("docker install failed: %s", strings.TrimSpace(out))
-    }
+    return fmt.Errorf("docker install failed: %s", strings.TrimSpace(out))
   }
   if _, err := system.RunCommandWithSudo(ctx, "systemctl", "enable", "--now", "docker"); err != nil {
     if isDockerActive(ctx) {
