@@ -626,18 +626,7 @@ func ensureLndgGrpcAccess(ctx context.Context) error {
     return fmt.Errorf("failed to read lnd.conf: %w", err)
   }
   lines := strings.Split(strings.TrimRight(string(content), "\n"), "\n")
-  changed := false
-  if !lndConfigHasValue(lines, "tlsextraip", gatewayIP) {
-    lines = append(lines, fmt.Sprintf("tlsextraip=%s", gatewayIP))
-    changed = true
-  }
-  if !lndConfigHasValue(lines, "tlsextradomain", "host.docker.internal") {
-    lines = append(lines, "tlsextradomain=host.docker.internal")
-    changed = true
-  }
-  var rpcChanged bool
-  lines, rpcChanged = ensureLndRpcListen(lines, gatewayIP)
-  changed = changed || rpcChanged
+  lines, changed := updateLndGrpcOptions(lines, gatewayIP)
   if !changed {
     return nil
   }
@@ -674,46 +663,88 @@ func dockerGatewayIP(ctx context.Context) (string, error) {
   return "", errors.New("unable to determine docker bridge gateway IP")
 }
 
-func lndConfigHasValue(lines []string, key string, value string) bool {
-  target := key + "=" + value
-  for _, line := range lines {
+func updateLndGrpcOptions(lines []string, gateway string) ([]string, bool) {
+  firstSection := len(lines)
+  for i, line := range lines {
     trimmed := strings.TrimSpace(line)
-    if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-      continue
-    }
-    if trimmed == target {
-      return true
+    if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+      firstSection = i
+      break
     }
   }
-  return false
-}
+  top := lines[:firstSection]
+  rest := lines[firstSection:]
 
-func ensureLndRpcListen(lines []string, gateway string) ([]string, bool) {
-  hasListen := false
-  hasGateway := false
-  gatewayLine := fmt.Sprintf("rpclisten=%s:10009", gateway)
-  for _, line := range lines {
+  rpclistenOrder := []string{}
+  rpclistenSet := map[string]bool{}
+  filteredTop := []string{}
+  for _, line := range top {
     trimmed := strings.TrimSpace(line)
     if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+      filteredTop = append(filteredTop, line)
+      continue
+    }
+    if strings.HasPrefix(trimmed, "tlsextraip=") || strings.HasPrefix(trimmed, "tlsextradomain=") {
       continue
     }
     if strings.HasPrefix(trimmed, "rpclisten=") {
-      hasListen = true
-      if trimmed == gatewayLine {
-        hasGateway = true
+      value := strings.TrimSpace(strings.TrimPrefix(trimmed, "rpclisten="))
+      if value != "" && !rpclistenSet[value] {
+        rpclistenSet[value] = true
+        rpclistenOrder = append(rpclistenOrder, value)
+      }
+      continue
+    }
+    filteredTop = append(filteredTop, line)
+  }
+
+  filteredRest := []string{}
+  for _, line := range rest {
+    trimmed := strings.TrimSpace(line)
+    if strings.HasPrefix(trimmed, "tlsextraip=") || strings.HasPrefix(trimmed, "tlsextradomain=") || strings.HasPrefix(trimmed, "rpclisten=") {
+      continue
+    }
+    filteredRest = append(filteredRest, line)
+  }
+
+  desiredOrder := []string{"127.0.0.1:10009", gateway + ":10009"}
+  for _, value := range desiredOrder {
+    if !rpclistenSet[value] {
+      rpclistenSet[value] = true
+      rpclistenOrder = append([]string{value}, rpclistenOrder...)
+    }
+  }
+
+  updated := append([]string{}, filteredTop...)
+  updated = append(updated, fmt.Sprintf("tlsextraip=%s", gateway))
+  updated = append(updated, "tlsextradomain=host.docker.internal")
+
+  added := map[string]bool{}
+  for _, value := range desiredOrder {
+    if !added[value] {
+      updated = append(updated, "rpclisten="+value)
+      added[value] = true
+    }
+  }
+  for _, value := range rpclistenOrder {
+    if !added[value] {
+      updated = append(updated, "rpclisten="+value)
+      added[value] = true
+    }
+  }
+
+  updated = append(updated, filteredRest...)
+
+  changed := len(updated) != len(lines)
+  if !changed {
+    for i := range updated {
+      if updated[i] != lines[i] {
+        changed = true
+        break
       }
     }
   }
-  changed := false
-  if !hasListen {
-    lines = append(lines, "rpclisten=127.0.0.1:10009")
-    lines = append(lines, gatewayLine)
-    changed = true
-  } else if !hasGateway {
-    lines = append(lines, gatewayLine)
-    changed = true
-  }
-  return lines, changed
+  return updated, changed
 }
 
 func resolveCompose(ctx context.Context) (string, []string, error) {
