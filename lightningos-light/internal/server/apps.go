@@ -589,7 +589,7 @@ func syncLndgDbPassword(ctx context.Context, paths lndgPaths) error {
     return errors.New("lndg-db container not running")
   }
   escaped := strings.ReplaceAll(password, "'", "''")
-  cmd := fmt.Sprintf("export PGPASSWORD=\"$POSTGRES_PASSWORD\"; psql -U postgres -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 -c \"ALTER USER lndg WITH PASSWORD '%s';\" || psql -U postgres -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 -c \"CREATE USER lndg WITH PASSWORD '%s';\"", escaped, escaped)
+  cmd := fmt.Sprintf("export PGPASSWORD=\"$POSTGRES_PASSWORD\"; PGUSER=\"${POSTGRES_USER:-postgres}\"; psql -U \"$PGUSER\" -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 -c \"ALTER USER lndg WITH PASSWORD '%s';\" || psql -U \"$PGUSER\" -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 -c \"CREATE USER lndg WITH PASSWORD '%s';\"", escaped, escaped)
   var lastErr error
   var lastOut string
   for attempt := 0; attempt < 10; attempt++ {
