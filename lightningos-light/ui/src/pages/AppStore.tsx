@@ -16,6 +16,10 @@ const iconMap: Record<string, string> = {
   lndg: lndgIcon
 }
 
+const internalRoutes: Record<string, string> = {
+  bitcoincore: 'bitcoin-local'
+}
+
 const statusStyles: Record<string, string> = {
   running: 'bg-emerald-500/15 text-emerald-200 border border-emerald-400/30',
   stopped: 'bg-amber-500/15 text-amber-200 border border-amber-400/30',
@@ -78,6 +82,7 @@ export default function AppStore() {
         {apps.map((app) => {
           const isBusy = Boolean(busy[app.id])
           const statusStyle = statusStyles[app.status] || statusStyles.unknown
+          const internalRoute = internalRoutes[app.id]
           const openUrl = app.port ? `http://${host}:${app.port}` : ''
           const icon = iconMap[app.id]
           return (
@@ -116,7 +121,12 @@ export default function AppStore() {
                 )}
                 {app.installed && app.status === 'running' && (
                   <>
-                    {app.port && openUrl && (
+                    {internalRoute && (
+                      <a className="btn-primary" href={`#${internalRoute}`}>
+                        Open
+                      </a>
+                    )}
+                    {!internalRoute && app.port && openUrl && (
                       <a className="btn-primary" href={openUrl} target="_blank" rel="noreferrer">
                         Open
                       </a>
