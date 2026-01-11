@@ -51,6 +51,15 @@ type BalanceSummary struct {
   Warnings []string
 }
 
+type DecodedInvoice struct {
+  AmountSat int64
+  AmountMsat int64
+  Memo string
+  Destination string
+  Expiry int64
+  Timestamp int64
+}
+
 func (m macaroonCredential) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
   return map[string]string{"macaroon": m.macaroon}, nil
 }
@@ -160,6 +169,29 @@ func (c *Client) GetBalances(ctx context.Context) (BalanceSummary, error) {
     return summary, firstErr
   }
   return summary, nil
+}
+
+func (c *Client) DecodeInvoice(ctx context.Context, payReq string) (DecodedInvoice, error) {
+  conn, err := c.dial(ctx, true)
+  if err != nil {
+    return DecodedInvoice{}, err
+  }
+  defer conn.Close()
+
+  client := lnrpc.NewLightningClient(conn)
+  resp, err := client.DecodePayReq(ctx, &lnrpc.PayReqString{PayReq: payReq})
+  if err != nil {
+    return DecodedInvoice{}, err
+  }
+
+  return DecodedInvoice{
+    AmountSat: resp.NumSatoshis,
+    AmountMsat: resp.NumMsat,
+    Memo: resp.Description,
+    Destination: resp.Destination,
+    Expiry: resp.Expiry,
+    Timestamp: resp.Timestamp,
+  }, nil
 }
 
 func (c *Client) getStatusUncached(ctx context.Context) (Status, error) {

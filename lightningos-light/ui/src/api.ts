@@ -79,6 +79,8 @@ export const getWalletSummary = () => request('/api/wallet/summary')
 export const getWalletAddress = () => request('/api/wallet/address', { method: 'POST' })
 export const createInvoice = (payload: { amount_sat: number; memo: string }) =>
   request('/api/wallet/invoice', { method: 'POST', body: JSON.stringify(payload) })
+export const decodeInvoice = (payload: { payment_request: string }) =>
+  request('/api/wallet/decode', { method: 'POST', body: JSON.stringify(payload) })
 export const payInvoice = (payload: { payment_request: string }) =>
   request('/api/wallet/pay', { method: 'POST', body: JSON.stringify(payload) })
 

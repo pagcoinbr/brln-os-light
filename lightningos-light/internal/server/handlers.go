@@ -1596,6 +1596,46 @@ func (s *Server) handleWalletInvoice(w http.ResponseWriter, r *http.Request) {
   writeJSON(w, http.StatusOK, map[string]string{"payment_request": invoice})
 }
 
+func (s *Server) handleWalletDecode(w http.ResponseWriter, r *http.Request) {
+  var req struct {
+    PaymentRequest string `json:"payment_request"`
+  }
+  if err := readJSON(r, &req); err != nil {
+    writeError(w, http.StatusBadRequest, "invalid json")
+    return
+  }
+  paymentRequest := strings.TrimSpace(req.PaymentRequest)
+  if paymentRequest == "" {
+    writeError(w, http.StatusBadRequest, "payment_request required")
+    return
+  }
+
+  ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+  defer cancel()
+
+  decoded, err := s.lnd.DecodeInvoice(ctx, paymentRequest)
+  if err != nil {
+    msg := err.Error()
+    lower := strings.ToLower(msg)
+    if isTimeoutError(err) {
+      msg = lndStatusMessage(err)
+    } else if strings.Contains(lower, "invalid") || strings.Contains(lower, "payment request") {
+      msg = "Invalid invoice"
+    }
+    writeError(w, http.StatusBadRequest, msg)
+    return
+  }
+
+  writeJSON(w, http.StatusOK, map[string]any{
+    "amount_sat": decoded.AmountSat,
+    "amount_msat": decoded.AmountMsat,
+    "memo": decoded.Memo,
+    "destination": decoded.Destination,
+    "expiry": decoded.Expiry,
+    "timestamp": decoded.Timestamp,
+  })
+}
+
 func (s *Server) handleWalletPay(w http.ResponseWriter, r *http.Request) {
   var req struct {
     PaymentRequest string `json:"payment_request"`

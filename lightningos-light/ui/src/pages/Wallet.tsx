@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { createInvoice, getWalletAddress, getWalletSummary, payInvoice } from '../api'
+import { createInvoice, decodeInvoice, getWalletAddress, getWalletSummary, payInvoice } from '../api'
 
 const emptySummary = {
   balances: {
@@ -25,6 +25,9 @@ export default function Wallet() {
   const [invoiceCopied, setInvoiceCopied] = useState(false)
   const [invoiceNotice, setInvoiceNotice] = useState('')
   const [paymentRequest, setPaymentRequest] = useState('')
+  const [decode, setDecode] = useState<any>(null)
+  const [decodeError, setDecodeError] = useState('')
+  const [decodeLoading, setDecodeLoading] = useState(false)
   const [status, setStatus] = useState('')
 
   useEffect(() => {
@@ -53,6 +56,32 @@ export default function Wallet() {
       clearInterval(timer)
     }
   }, [])
+
+  useEffect(() => {
+    const trimmed = paymentRequest.trim()
+    if (!trimmed) {
+      setDecode(null)
+      setDecodeError('')
+      setDecodeLoading(false)
+      return
+    }
+
+    setDecodeLoading(true)
+    const timer = setTimeout(async () => {
+      try {
+        const res = await decodeInvoice({ payment_request: trimmed })
+        setDecode(res)
+        setDecodeError('')
+      } catch (err: any) {
+        setDecode(null)
+        setDecodeError(err?.message || 'Invalid invoice')
+      } finally {
+        setDecodeLoading(false)
+      }
+    }, 400)
+
+    return () => clearTimeout(timer)
+  }, [paymentRequest])
 
   const onchainBalance = summary?.balances?.onchain_sat ?? 0
   const lightningBalance = summary?.balances?.lightning_sat ?? 0
@@ -127,6 +156,15 @@ export default function Wallet() {
     } catch {
       setStatus('Payment failed.')
     }
+  }
+
+  const decodedAmount = () => {
+    if (!decode) return ''
+    const amountSat = Number(decode.amount_sat || 0)
+    const amountMsat = Number(decode.amount_msat || 0)
+    if (amountSat > 0) return `${amountSat} sats`
+    if (amountMsat > 0) return `${(amountMsat / 1000).toFixed(3)} sats`
+    return 'Amountless'
   }
 
   return (
@@ -219,6 +257,24 @@ export default function Wallet() {
         <div className="section-card space-y-4">
           <h3 className="text-lg font-semibold">Pay invoice</h3>
           <textarea className="input-field min-h-[140px]" placeholder="Paste payment request" value={paymentRequest} onChange={(e) => setPaymentRequest(e.target.value)} />
+          {decodeLoading && (
+            <p className="text-xs text-fog/60">Decoding invoice...</p>
+          )}
+          {!decodeLoading && decodeError && (
+            <p className="text-xs text-ember">{decodeError}</p>
+          )}
+          {!decodeLoading && !decodeError && decode && (
+            <div className="rounded-2xl border border-white/10 bg-ink/60 p-3 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-fog/60">Amount</span>
+                <span>{decodedAmount()}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-fog/60">Memo</span>
+                <span className="max-w-[220px] truncate text-right">{decode.memo || 'No memo'}</span>
+              </div>
+            </div>
+          )}
           <button className="btn-primary" onClick={handlePay}>Pay invoice</button>
         </div>
       </div>

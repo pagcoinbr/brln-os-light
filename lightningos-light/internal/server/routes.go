@@ -45,6 +45,7 @@ func (s *Server) routes() http.Handler {
     r.Get("/summary", s.handleWalletSummary)
     r.Post("/address", s.handleWalletAddress)
     r.Post("/invoice", s.handleWalletInvoice)
+    r.Post("/decode", s.handleWalletDecode)
     r.Post("/pay", s.handleWalletPay)
   })
 
