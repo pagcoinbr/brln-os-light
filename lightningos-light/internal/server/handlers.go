@@ -1522,7 +1522,7 @@ func (s *Server) handleWalletSummary(w http.ResponseWriter, r *http.Request) {
   ctx, cancel := context.WithTimeout(r.Context(), lndRPCTimeout)
   defer cancel()
 
-  status, err := s.lnd.GetStatus(ctx)
+  balances, err := s.lnd.GetBalances(ctx)
   if err != nil {
     if isTimeoutError(err) && s.lndWarmupActive() {
       writeJSON(w, http.StatusOK, map[string]any{
@@ -1541,13 +1541,17 @@ func (s *Server) handleWalletSummary(w http.ResponseWriter, r *http.Request) {
 
   activity, _ := s.lnd.ListRecent(ctx, 20)
 
-  writeJSON(w, http.StatusOK, map[string]any{
+  resp := map[string]any{
     "balances": map[string]int64{
-      "onchain_sat": status.OnchainSat,
-      "lightning_sat": status.LightningSat,
+      "onchain_sat": balances.OnchainSat,
+      "lightning_sat": balances.LightningSat,
     },
     "activity": activity,
-  })
+  }
+  if len(balances.Warnings) > 0 {
+    resp["warning"] = strings.Join(balances.Warnings, " ")
+  }
+  writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleWalletAddress(w http.ResponseWriter, r *http.Request) {

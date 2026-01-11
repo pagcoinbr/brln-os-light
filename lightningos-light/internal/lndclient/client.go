@@ -45,6 +45,12 @@ type macaroonCredential struct {
   macaroon string
 }
 
+type BalanceSummary struct {
+  OnchainSat int64
+  LightningSat int64
+  Warnings []string
+}
+
 func (m macaroonCredential) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
   return map[string]string{"macaroon": m.macaroon}, nil
 }
@@ -107,6 +113,53 @@ func (c *Client) GetStatus(ctx context.Context) (Status, error) {
   c.statusMu.Unlock()
 
   return status, err
+}
+
+func (c *Client) GetBalances(ctx context.Context) (BalanceSummary, error) {
+  conn, err := c.dial(ctx, true)
+  if err != nil {
+    return BalanceSummary{}, err
+  }
+  defer conn.Close()
+
+  client := lnrpc.NewLightningClient(conn)
+  summary := BalanceSummary{}
+  walletOK := false
+  channelOK := false
+  var firstErr error
+
+  wallet, err := client.WalletBalance(ctx, &lnrpc.WalletBalanceRequest{})
+  if err != nil {
+    if isWalletLocked(err) {
+      return summary, err
+    }
+    if firstErr == nil {
+      firstErr = err
+    }
+    summary.Warnings = append(summary.Warnings, "On-chain balance unavailable")
+  } else {
+    summary.OnchainSat = wallet.TotalBalance
+    walletOK = true
+  }
+
+  channelBal, err := client.ChannelBalance(ctx, &lnrpc.ChannelBalanceRequest{})
+  if err != nil {
+    if isWalletLocked(err) {
+      return summary, err
+    }
+    if firstErr == nil {
+      firstErr = err
+    }
+    summary.Warnings = append(summary.Warnings, "Lightning balance unavailable")
+  } else {
+    summary.LightningSat = channelBal.Balance
+    channelOK = true
+  }
+
+  if !walletOK && !channelOK && firstErr != nil {
+    return summary, firstErr
+  }
+  return summary, nil
 }
 
 func (c *Client) getStatusUncached(ctx context.Context) (Status, error) {
