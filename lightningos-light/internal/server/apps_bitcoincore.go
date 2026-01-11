@@ -107,7 +107,17 @@ func (s *Server) installBitcoinCore(ctx context.Context) error {
   if _, err := ensureFileWithChange(paths.ComposePath, bitcoinCoreComposeContents(paths)); err != nil {
     return err
   }
-  return runCompose(ctx, paths.Root, paths.ComposePath, "up", "-d")
+  if err := runCompose(ctx, paths.Root, paths.ComposePath, "up", "-d"); err != nil {
+    return err
+  }
+  if _, changed, err := syncBitcoinCoreRPCAllowList(ctx, paths); err != nil {
+    return err
+  } else if changed {
+    if err := runCompose(ctx, paths.Root, paths.ComposePath, "restart", "bitcoind"); err != nil {
+      return err
+    }
+  }
+  return nil
 }
 
 func (s *Server) uninstallBitcoinCore(ctx context.Context) error {
@@ -138,7 +148,17 @@ func (s *Server) startBitcoinCore(ctx context.Context) error {
   if _, err := ensureFileWithChange(paths.ComposePath, bitcoinCoreComposeContents(paths)); err != nil {
     return err
   }
-  return runCompose(ctx, paths.Root, paths.ComposePath, "up", "-d")
+  if err := runCompose(ctx, paths.Root, paths.ComposePath, "up", "-d"); err != nil {
+    return err
+  }
+  if _, changed, err := syncBitcoinCoreRPCAllowList(ctx, paths); err != nil {
+    return err
+  } else if changed {
+    if err := runCompose(ctx, paths.Root, paths.ComposePath, "restart", "bitcoind"); err != nil {
+      return err
+    }
+  }
+  return nil
 }
 
 func (s *Server) stopBitcoinCore(ctx context.Context) error {

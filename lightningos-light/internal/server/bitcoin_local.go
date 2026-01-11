@@ -480,6 +480,33 @@ func looksLikeEntrypointLog(line string) bool {
   return false
 }
 
+func syncBitcoinCoreRPCAllowList(ctx context.Context, paths bitcoinCorePaths) (string, bool, error) {
+  raw, err := readBitcoinCoreConfig(ctx, paths)
+  if err != nil {
+    return "", false, err
+  }
+
+  allowList := []string{"127.0.0.1"}
+  if gateway, gwErr := dockerGatewayIP(ctx); gwErr == nil && gateway != "" {
+    allowList = append(allowList, gateway)
+  }
+  if containerID, idErr := composeContainerID(ctx, paths.Root, paths.ComposePath, "bitcoind"); idErr == nil && containerID != "" {
+    for _, gateway := range dockerContainerGateways(ctx, containerID) {
+      allowList = append(allowList, gateway)
+    }
+  }
+
+  updated, changed := ensureBitcoinCoreRPCAllowList(raw, allowList)
+  if !changed {
+    return raw, false, nil
+  }
+  if err := writeBitcoinCoreConfig(ctx, paths, updated); err != nil {
+    return "", false, err
+  }
+  _ = writeFile(paths.SeedConfigPath, updated, 0640)
+  return updated, true, nil
+}
+
 func ensureBitcoinCoreRPCAllowList(raw string, allow []string) (string, bool) {
   normalized := sanitizeBitcoinCoreConfig(raw)
   lines := strings.Split(strings.TrimRight(normalized, "\n"), "\n")

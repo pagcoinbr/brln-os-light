@@ -350,7 +350,7 @@ func (s *Server) handleBitcoinSourcePost(w http.ResponseWriter, r *http.Request)
     ZMQTx: s.cfg.BitcoinRemote.ZMQRawTx,
   }
 
-  localCfg, err := readBitcoinLocalRPCConfig(r.Context())
+  localCfg, localUpdated, err := readBitcoinLocalRPCConfig(r.Context())
   if err != nil && source == "local" {
     writeError(w, http.StatusInternalServerError, err.Error())
     return
@@ -361,6 +361,7 @@ func (s *Server) handleBitcoinSourcePost(w http.ResponseWriter, r *http.Request)
       ZMQBlock: "tcp://127.0.0.1:28332",
       ZMQTx: "tcp://127.0.0.1:28333",
     }
+    localUpdated = false
   }
 
   if err := updateLNDConfBitcoinSource(source, remoteCfg, localCfg); err != nil {
@@ -369,6 +370,28 @@ func (s *Server) handleBitcoinSourcePost(w http.ResponseWriter, r *http.Request)
   }
   if err := storeBitcoinSource(source); err != nil {
     s.logger.Printf("failed to store bitcoin source: %v", err)
+  }
+
+  needsBitcoinRestart := source == "local" && localUpdated
+  if source == "local" && !needsBitcoinRestart {
+    rpcCtx, rpcCancel := context.WithTimeout(r.Context(), 4*time.Second)
+    defer rpcCancel()
+    if _, err := fetchBitcoinInfo(rpcCtx, localCfg.Host, localCfg.User, localCfg.Pass); err != nil {
+      var statusErr rpcStatusError
+      if errors.As(err, &statusErr) && statusErr.statusCode == http.StatusForbidden {
+        needsBitcoinRestart = true
+      }
+    }
+  }
+
+  if needsBitcoinRestart {
+    paths := bitcoinCoreAppPaths()
+    ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+    defer cancel()
+    if err := runCompose(ctx, paths.Root, paths.ComposePath, "restart", "bitcoind"); err != nil {
+      writeError(w, http.StatusInternalServerError, "bitcoin restart failed")
+      return
+    }
   }
 
   ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
@@ -448,33 +471,18 @@ func (s *Server) bitcoinLocalStatusActive(ctx context.Context) (bitcoinStatus, e
   return status, nil
 }
 
-func readBitcoinLocalRPCConfig(ctx context.Context) (bitcoinRPCConfig, error) {
+func readBitcoinLocalRPCConfig(ctx context.Context) (bitcoinRPCConfig, bool, error) {
   paths := bitcoinCoreAppPaths()
   if !fileExists(paths.ComposePath) {
-    return bitcoinRPCConfig{}, errors.New("bitcoin core is not installed")
+    return bitcoinRPCConfig{}, false, errors.New("bitcoin core is not installed")
   }
-  raw, err := readBitcoinCoreConfig(ctx, paths)
+  raw, updated, err := syncBitcoinCoreRPCAllowList(ctx, paths)
   if err != nil {
-    return bitcoinRPCConfig{}, fmt.Errorf("failed to read local bitcoin.conf: %w", err)
-  }
-  allowList := []string{"127.0.0.1"}
-  if gateway, gwErr := dockerGatewayIP(ctx); gwErr == nil && gateway != "" {
-    allowList = append(allowList, gateway)
-  }
-  if containerID, idErr := composeContainerID(ctx, paths.Root, paths.ComposePath, "bitcoind"); idErr == nil && containerID != "" {
-    for _, gateway := range dockerContainerGateways(ctx, containerID) {
-      allowList = append(allowList, gateway)
-    }
-  }
-  if updated, changed := ensureBitcoinCoreRPCAllowList(raw, allowList); changed {
-    if err := writeBitcoinCoreConfig(ctx, paths, updated); err == nil {
-      raw = updated
-      _ = writeFile(paths.SeedConfigPath, updated, 0640)
-    }
+    return bitcoinRPCConfig{}, false, fmt.Errorf("failed to read local bitcoin.conf: %w", err)
   }
   user, pass, zmqBlock, zmqTx := parseBitcoinCoreRPCConfig(raw)
   if user == "" || pass == "" {
-    return bitcoinRPCConfig{}, errors.New("local RPC credentials missing")
+    return bitcoinRPCConfig{}, false, errors.New("local RPC credentials missing")
   }
   zmqBlock = normalizeLocalZMQ(zmqBlock, "tcp://127.0.0.1:28332")
   zmqTx = normalizeLocalZMQ(zmqTx, "tcp://127.0.0.1:28333")
@@ -484,7 +492,7 @@ func readBitcoinLocalRPCConfig(ctx context.Context) (bitcoinRPCConfig, error) {
     Pass: pass,
     ZMQBlock: zmqBlock,
     ZMQTx: zmqTx,
-  }, nil
+  }, updated, nil
 }
 
 func readBitcoinSecrets() (string, string) {
@@ -1913,7 +1921,7 @@ func updateLNDConfRPC(ctx context.Context, user, pass, host, zmqBlock, zmqTx str
     ZMQBlock: zmqBlock,
     ZMQTx: zmqTx,
   }
-  localCfg, err := readBitcoinLocalRPCConfig(ctx)
+  localCfg, _, err := readBitcoinLocalRPCConfig(ctx)
   if err != nil {
     localCfg = bitcoinRPCConfig{
       Host: "127.0.0.1:8332",
