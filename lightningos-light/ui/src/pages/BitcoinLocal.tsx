@@ -58,9 +58,31 @@ export default function BitcoinLocal() {
   const lastBlockRef = useRef<number | null>(null)
   const flashTimerRef = useRef<number | null>(null)
 
+  const mergeStatus = (prev: BitcoinLocalStatus | null, next: BitcoinLocalStatus) => {
+    if (!prev) return next
+    if (!next.installed || next.status !== 'running') return next
+    return {
+      ...prev,
+      ...next,
+      rpc_ok: next.rpc_ok ?? prev.rpc_ok,
+      connections: next.connections ?? prev.connections,
+      chain: next.chain ?? prev.chain,
+      blocks: next.blocks ?? prev.blocks,
+      headers: next.headers ?? prev.headers,
+      verification_progress: next.verification_progress ?? prev.verification_progress,
+      initial_block_download: next.initial_block_download ?? prev.initial_block_download,
+      version: next.version ?? prev.version,
+      subversion: next.subversion ?? prev.subversion,
+      pruned: next.pruned ?? prev.pruned,
+      prune_height: next.prune_height ?? prev.prune_height,
+      prune_target_size: next.prune_target_size ?? prev.prune_target_size,
+      size_on_disk: next.size_on_disk ?? prev.size_on_disk
+    }
+  }
+
   const loadStatus = () => {
     getBitcoinLocalStatus()
-      .then((data: BitcoinLocalStatus) => setStatus(data))
+      .then((data: BitcoinLocalStatus) => setStatus((prev) => mergeStatus(prev, data)))
       .catch(() => null)
   }
 
