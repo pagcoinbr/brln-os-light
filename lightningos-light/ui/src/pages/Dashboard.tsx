@@ -104,67 +104,6 @@ export default function Dashboard() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="section-card">
-          <h3 className="text-lg font-semibold">System</h3>
-          {system ? (
-            <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-fog/60">CPU load</p>
-                <p>{system.cpu_load_1?.toFixed?.(2)} / {system.cpu_percent?.toFixed?.(1)}%</p>
-              </div>
-              <div>
-                <p className="text-fog/60">RAM used</p>
-                <p>{system.ram_used_mb} / {system.ram_total_mb} MB</p>
-              </div>
-              <div>
-                <p className="text-fog/60">Uptime</p>
-                <p>{Math.round(system.uptime_sec / 3600)} hours</p>
-              </div>
-              <div>
-                <p className="text-fog/60">Temp</p>
-                <p>{system.temperature_c?.toFixed?.(1)} C</p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-fog/60 mt-4">Loading system info...</p>
-          )}
-        </div>
-
-        <div className="section-card">
-          <h3 className="text-lg font-semibold">{bitcoin?.mode === 'local' ? 'Bitcoin Local' : 'Bitcoin Remote'}</h3>
-          {bitcoin ? (
-            <div className="mt-4 text-sm space-y-2">
-              <div className="flex justify-between"><span>Host</span><span>{bitcoin.rpchost}</span></div>
-              <div className="flex justify-between"><span>RPC</span><Badge label={bitcoin.rpc_ok ? 'OK' : 'Fail'} tone={bitcoin.rpc_ok ? 'ok' : 'warn'} /></div>
-              <div className="flex justify-between"><span>ZMQ Raw Block</span><Badge label={bitcoin.zmq_rawblock_ok ? 'OK' : 'Fail'} tone={bitcoin.zmq_rawblock_ok ? 'ok' : 'warn'} /></div>
-              <div className="flex justify-between"><span>ZMQ Raw Tx</span><Badge label={bitcoin.zmq_rawtx_ok ? 'OK' : 'Fail'} tone={bitcoin.zmq_rawtx_ok ? 'ok' : 'warn'} /></div>
-              {bitcoin.rpc_ok && (
-                <>
-                  <div className="flex justify-between"><span>Chain</span><span>{bitcoin.chain || 'n/a'}</span></div>
-                  <div className="flex justify-between"><span>Blocks</span><span>{bitcoin.blocks ?? 'n/a'}</span></div>
-                  <div className="flex justify-between"><span>Sync</span><span>{syncLabel(bitcoin)}</span></div>
-                </>
-              )}
-            </div>
-          ) : (
-            <p className="text-fog/60 mt-4">Loading bitcoin status...</p>
-          )}
-        </div>
-
-        <div className="section-card">
-          <h3 className="text-lg font-semibold">Postgres</h3>
-          {postgres ? (
-            <div className="mt-4 text-sm space-y-2">
-              <div className="flex justify-between"><span>Service</span><Badge label={postgres.service_active ? 'Active' : 'Inactive'} tone={postgres.service_active ? 'ok' : 'warn'} /></div>
-              <div className="flex justify-between"><span>Version</span><span>{postgres.version || 'n/a'}</span></div>
-              <div className="flex justify-between"><span>DB size</span><span>{postgres.db_size_mb} MB</span></div>
-              <div className="flex justify-between"><span>Connections</span><span>{postgres.connections}</span></div>
-            </div>
-          ) : (
-            <p className="text-fog/60 mt-4">Loading postgres status...</p>
-          )}
-        </div>
-
-        <div className="section-card">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">LND</h3>
             <div className="text-right">
@@ -243,6 +182,67 @@ export default function Dashboard() {
             </div>
           ) : (
             <p className="text-fog/60 mt-4">Loading LND status...</p>
+          )}
+        </div>
+
+        <div className="section-card">
+          <h3 className="text-lg font-semibold">{bitcoin?.mode === 'local' ? 'Bitcoin Local' : 'Bitcoin Remote'}</h3>
+          {bitcoin ? (
+            <div className="mt-4 text-sm space-y-2">
+              <div className="flex justify-between"><span>Host</span><span>{bitcoin.rpchost}</span></div>
+              <div className="flex justify-between"><span>RPC</span><Badge label={bitcoin.rpc_ok ? 'OK' : 'Fail'} tone={bitcoin.rpc_ok ? 'ok' : 'warn'} /></div>
+              <div className="flex justify-between"><span>ZMQ Raw Block</span><Badge label={bitcoin.zmq_rawblock_ok ? 'OK' : 'Fail'} tone={bitcoin.zmq_rawblock_ok ? 'ok' : 'warn'} /></div>
+              <div className="flex justify-between"><span>ZMQ Raw Tx</span><Badge label={bitcoin.zmq_rawtx_ok ? 'OK' : 'Fail'} tone={bitcoin.zmq_rawtx_ok ? 'ok' : 'warn'} /></div>
+              {bitcoin.rpc_ok && (
+                <>
+                  <div className="flex justify-between"><span>Chain</span><span>{bitcoin.chain || 'n/a'}</span></div>
+                  <div className="flex justify-between"><span>Blocks</span><span>{bitcoin.blocks ?? 'n/a'}</span></div>
+                  <div className="flex justify-between"><span>Sync</span><span>{syncLabel(bitcoin)}</span></div>
+                </>
+              )}
+            </div>
+          ) : (
+            <p className="text-fog/60 mt-4">Loading bitcoin status...</p>
+          )}
+        </div>
+
+        <div className="section-card">
+          <h3 className="text-lg font-semibold">Postgres</h3>
+          {postgres ? (
+            <div className="mt-4 text-sm space-y-2">
+              <div className="flex justify-between"><span>Service</span><Badge label={postgres.service_active ? 'Active' : 'Inactive'} tone={postgres.service_active ? 'ok' : 'warn'} /></div>
+              <div className="flex justify-between"><span>Version</span><span>{postgres.version || 'n/a'}</span></div>
+              <div className="flex justify-between"><span>DB size</span><span>{postgres.db_size_mb} MB</span></div>
+              <div className="flex justify-between"><span>Connections</span><span>{postgres.connections}</span></div>
+            </div>
+          ) : (
+            <p className="text-fog/60 mt-4">Loading postgres status...</p>
+          )}
+        </div>
+
+        <div className="section-card">
+          <h3 className="text-lg font-semibold">System</h3>
+          {system ? (
+            <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-fog/60">CPU load</p>
+                <p>{system.cpu_load_1?.toFixed?.(2)} / {system.cpu_percent?.toFixed?.(1)}%</p>
+              </div>
+              <div>
+                <p className="text-fog/60">RAM used</p>
+                <p>{system.ram_used_mb} / {system.ram_total_mb} MB</p>
+              </div>
+              <div>
+                <p className="text-fog/60">Uptime</p>
+                <p>{Math.round(system.uptime_sec / 3600)} hours</p>
+              </div>
+              <div>
+                <p className="text-fog/60">Temp</p>
+                <p>{system.temperature_c?.toFixed?.(1)} C</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-fog/60 mt-4">Loading system info...</p>
           )}
         </div>
       </div>

@@ -25,6 +25,7 @@ type Peer = {
   ping_time: number
   sync_type: string
   last_error: string
+  last_error_time?: number
 }
 
 const formatPing = (value: number) => {
@@ -32,6 +33,20 @@ const formatPing = (value: number) => {
   const ms = value / 1000
   if (ms < 1000) return `${ms.toFixed(1)} ms`
   return `${(ms / 1000).toFixed(1)} s`
+}
+
+const formatAge = (timestamp?: number) => {
+  if (!timestamp) return ''
+  const ageMs = Date.now() - timestamp * 1000
+  if (ageMs <= 0) return 'just now'
+  const seconds = Math.floor(ageMs / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
 }
 
 export default function LightningOps() {
@@ -652,7 +667,9 @@ export default function LightningOps() {
                   <p className="mt-2 text-xs text-fog/50">Sync: {peer.sync_type}</p>
                 )}
                 {peer.last_error && (
-                  <p className="mt-2 text-xs text-ember">Last error: {peer.last_error}</p>
+                  <p className="mt-2 text-xs text-ember">
+                    Last error{peer.last_error_time ? ` (${formatAge(peer.last_error_time)})` : ''}: {peer.last_error}
+                  </p>
                 )}
               </div>
             ))}

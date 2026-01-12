@@ -524,9 +524,11 @@ func (c *Client) ListPeers(ctx context.Context) ([]PeerInfo, error) {
       }
     }
     lastErr := ""
+    lastErrTime := int64(0)
     if len(peer.Errors) > 0 {
       if last := peer.Errors[len(peer.Errors)-1]; last != nil {
         lastErr = last.Error
+        lastErrTime = int64(last.Timestamp)
       }
     }
     peers = append(peers, PeerInfo{
@@ -541,6 +543,7 @@ func (c *Client) ListPeers(ctx context.Context) ([]PeerInfo, error) {
       PingTime: peer.PingTime,
       SyncType: peer.SyncType.String(),
       LastError: lastErr,
+      LastErrorTime: lastErrTime,
     })
   }
 
@@ -774,6 +777,7 @@ type PeerInfo struct {
   PingTime int64 `json:"ping_time"`
   SyncType string `json:"sync_type"`
   LastError string `json:"last_error"`
+  LastErrorTime int64 `json:"last_error_time,omitempty"`
 }
 
 type RecentActivity struct {
