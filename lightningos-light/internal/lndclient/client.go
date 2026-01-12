@@ -581,7 +581,7 @@ func (c *Client) DisconnectPeer(ctx context.Context, pubkey string) error {
   return err
 }
 
-func (c *Client) OpenChannel(ctx context.Context, pubkeyHex string, localFundingSat int64, closeAddress string, private bool) (string, error) {
+func (c *Client) OpenChannel(ctx context.Context, pubkeyHex string, localFundingSat int64, closeAddress string, private bool, satPerVbyte int64) (string, error) {
   pubkeyHex = strings.TrimSpace(pubkeyHex)
   if pubkeyHex == "" {
     return "", errors.New("pubkey required")
@@ -602,6 +602,9 @@ func (c *Client) OpenChannel(ctx context.Context, pubkeyHex string, localFunding
     NodePubkey: pubkey,
     LocalFundingAmount: localFundingSat,
     Private: private,
+  }
+  if satPerVbyte > 0 {
+    req.SatPerVbyte = uint64(satPerVbyte)
   }
   if strings.TrimSpace(closeAddress) != "" {
     req.CloseAddress = strings.TrimSpace(closeAddress)

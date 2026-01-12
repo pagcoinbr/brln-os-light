@@ -275,6 +275,14 @@ type mempoolNodeInfo struct {
   Sockets string `json:"sockets"`
 }
 
+type mempoolFeeRecommendation struct {
+  FastestFee int `json:"fastestFee"`
+  HalfHourFee int `json:"halfHourFee"`
+  HourFee int `json:"hourFee"`
+  EconomyFee int `json:"economyFee"`
+  MinimumFee int `json:"minimumFee"`
+}
+
 type boostPeersRequest struct {
   Limit int `json:"limit"`
 }
@@ -1204,6 +1212,7 @@ func (s *Server) handleLNOpenChannel(w http.ResponseWriter, r *http.Request) {
     LocalFundingSat int64 `json:"local_funding_sat"`
     CloseAddress string `json:"close_address"`
     Private bool `json:"private"`
+    SatPerVbyte int64 `json:"sat_per_vbyte"`
   }
   if err := readJSON(r, &req); err != nil {
     writeError(w, http.StatusBadRequest, "invalid json")
@@ -1219,6 +1228,10 @@ func (s *Server) handleLNOpenChannel(w http.ResponseWriter, r *http.Request) {
   }
   if req.LocalFundingSat <= 0 {
     writeError(w, http.StatusBadRequest, "local_funding_sat must be positive")
+    return
+  }
+  if req.SatPerVbyte < 0 {
+    writeError(w, http.StatusBadRequest, "sat_per_vbyte must be zero or positive")
     return
   }
 
@@ -1240,13 +1253,26 @@ func (s *Server) handleLNOpenChannel(w http.ResponseWriter, r *http.Request) {
     return
   }
 
-  channelPoint, err := s.lnd.OpenChannel(ctx, pubkey, req.LocalFundingSat, req.CloseAddress, req.Private)
+  channelPoint, err := s.lnd.OpenChannel(ctx, pubkey, req.LocalFundingSat, req.CloseAddress, req.Private, req.SatPerVbyte)
   if err != nil {
     writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
     return
   }
 
   writeJSON(w, http.StatusOK, map[string]string{"channel_point": channelPoint})
+}
+
+func (s *Server) handleMempoolFees(w http.ResponseWriter, r *http.Request) {
+  ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+  defer cancel()
+
+  url := "https://mempool.space/api/v1/fees/recommended"
+  var fees mempoolFeeRecommendation
+  if err := fetchMempoolJSON(ctx, url, &fees); err != nil {
+    writeError(w, http.StatusInternalServerError, "mempool fee fetch failed")
+    return
+  }
+  writeJSON(w, http.StatusOK, fees)
 }
 
 func (s *Server) handleLNCloseChannel(w http.ResponseWriter, r *http.Request) {

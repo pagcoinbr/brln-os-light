@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { boostPeers, closeChannel, connectPeer, disconnectPeer, getLnChannelFees, getLnChannels, getLnPeers, openChannel, updateChannelFees } from '../api'
+import { boostPeers, closeChannel, connectPeer, disconnectPeer, getLnChannelFees, getLnChannels, getLnPeers, getMempoolFees, openChannel, updateChannelFees } from '../api'
 
 type Channel = {
   channel_point: string
@@ -73,8 +73,12 @@ export default function LightningOps() {
   const [openPeer, setOpenPeer] = useState('')
   const [openAmount, setOpenAmount] = useState('')
   const [openCloseAddress, setOpenCloseAddress] = useState('')
+  const [openFeeRate, setOpenFeeRate] = useState('')
+  const [openFeeHint, setOpenFeeHint] = useState<{ fastest?: number; hour?: number } | null>(null)
+  const [openFeeStatus, setOpenFeeStatus] = useState('')
   const [openPrivate, setOpenPrivate] = useState(false)
   const [openStatus, setOpenStatus] = useState('')
+  const [openChannelPoint, setOpenChannelPoint] = useState('')
 
   const [closePoint, setClosePoint] = useState('')
   const [closeForce, setCloseForce] = useState(false)
@@ -124,6 +128,26 @@ export default function LightningOps() {
 
   useEffect(() => {
     load()
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    getMempoolFees()
+      .then((res: any) => {
+        if (!mounted) return
+        const fastest = Number(res?.fastestFee || 0)
+        const hour = Number(res?.hourFee || 0)
+        setOpenFeeHint({ fastest, hour })
+        setOpenFeeRate((prev) => (prev ? prev : fastest > 0 ? String(fastest) : prev))
+        setOpenFeeStatus('')
+      })
+      .catch(() => {
+        if (!mounted) return
+        setOpenFeeStatus('Fee suggestions unavailable.')
+      })
+    return () => {
+      mounted = false
+    }
   }, [])
 
   useEffect(() => {
@@ -261,7 +285,9 @@ export default function LightningOps() {
 
   const handleOpenChannel = async () => {
     setOpenStatus('Opening channel...')
+    setOpenChannelPoint('')
     const localFunding = Number(openAmount || 0)
+    const feeRate = Number(openFeeRate || 0)
     if (!openPeer.trim()) {
       setOpenStatus('Peer address required.')
       return
@@ -275,15 +301,23 @@ export default function LightningOps() {
         peer_address: openPeer.trim(),
         local_funding_sat: localFunding,
         close_address: openCloseAddress.trim() || undefined,
+        sat_per_vbyte: feeRate > 0 ? feeRate : undefined,
         private: openPrivate
       })
-      setOpenStatus(`Channel opening: ${res?.channel_point || 'submitted'}`)
+      setOpenStatus('Channel opening submitted.')
+      setOpenChannelPoint(res?.channel_point || '')
       setOpenAmount('')
       setOpenCloseAddress('')
       load()
     } catch (err: any) {
       setOpenStatus(err?.message || 'Channel open failed.')
     }
+  }
+
+  const mempoolLink = (channelPoint: string) => {
+    const parts = channelPoint.split(':')
+    if (parts.length !== 2) return ''
+    return `https://mempool.space/pt/tx/${parts[0]}#vout=${parts[1]}`
   }
 
   const handleCloseChannel = async () => {
@@ -423,13 +457,56 @@ export default function LightningOps() {
               onChange={(e) => setOpenCloseAddress(e.target.value)}
             />
           </div>
+          <label className="text-sm text-fog/70">
+            Fee rate (sat/vB)
+            <span className="ml-2 text-xs text-fog/50">
+              Fastest: {openFeeHint?.fastest ?? '-'} · 1h: {openFeeHint?.hour ?? '-'}
+            </span>
+            <input
+              className="input-field mt-2"
+              placeholder="Auto"
+              type="number"
+              min={1}
+              value={openFeeRate}
+              onChange={(e) => setOpenFeeRate(e.target.value)}
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              className="btn-secondary text-xs px-3 py-1.5"
+              type="button"
+              onClick={() => {
+                if (openFeeHint?.fastest) {
+                  setOpenFeeRate(String(openFeeHint.fastest))
+                }
+              }}
+              disabled={!openFeeHint?.fastest}
+            >
+              Use fastest
+            </button>
+            {openFeeStatus && <p className="text-xs text-fog/50">{openFeeStatus}</p>}
+          </div>
           <label className="flex items-center gap-2 text-sm text-fog/70">
             <input type="checkbox" checked={openPrivate} onChange={(e) => setOpenPrivate(e.target.checked)} />
             Private channel
           </label>
           <button className="btn-primary" onClick={handleOpenChannel}>Open channel</button>
           <p className="text-xs text-fog/50">Minimum funding is 20000 sat. Opening a channel can take a few blocks.</p>
-          {openStatus && <p className="text-sm text-brass">{openStatus}</p>}
+          {openStatus && (
+            <div className="text-sm text-brass break-words">
+              <p>{openStatus}</p>
+              {openChannelPoint && mempoolLink(openChannelPoint) && (
+                <a
+                  className="mt-1 block text-emerald-200 hover:text-emerald-100 break-all"
+                  href={mempoolLink(openChannelPoint)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Funding tx: {openChannelPoint}
+                </a>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

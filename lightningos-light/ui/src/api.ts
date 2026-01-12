@@ -75,6 +75,8 @@ export const updateLndConfig = (payload: {
 export const updateLndRawConfig = (payload: { raw_user_conf: string; apply_now: boolean }) =>
   request('/api/lnd/config/raw', { method: 'POST', body: JSON.stringify(payload) })
 
+export const getMempoolFees = () => request('/api/mempool/fees')
+
 export const getWalletSummary = () => request('/api/wallet/summary')
 export const getWalletAddress = () => request('/api/wallet/address', { method: 'POST' })
 export const createInvoice = (payload: { amount_sat: number; memo: string }) =>
@@ -98,6 +100,7 @@ export const openChannel = (payload: {
   peer_address: string
   local_funding_sat: number
   close_address?: string
+  sat_per_vbyte?: number
   private?: boolean
 }) => request('/api/lnops/channel/open', { method: 'POST', body: JSON.stringify(payload) })
 export const closeChannel = (payload: { channel_point: string; force?: boolean }) =>
