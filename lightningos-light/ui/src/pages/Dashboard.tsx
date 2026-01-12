@@ -31,6 +31,24 @@ export default function Dashboard() {
     }
   }
 
+  const badgeClass = (tone: 'ok' | 'warn' | 'muted') => {
+    if (tone === 'ok') {
+      return 'bg-emerald-500/15 text-emerald-200 border border-emerald-400/30'
+    }
+    if (tone === 'warn') {
+      return 'bg-amber-500/15 text-amber-200 border border-amber-400/30'
+    }
+    return 'bg-white/10 text-fog/60 border border-white/10'
+  }
+
+  const Badge = ({ label, tone }: { label: string; tone: 'ok' | 'warn' | 'muted' }) => (
+    <span className={`text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full ${badgeClass(tone)}`}>
+      {label}
+    </span>
+  )
+
+  const overallTone = status === 'OK' ? 'ok' : status === 'Unavailable' ? 'warn' : 'muted'
+
   useEffect(() => {
     let mounted = true
     const load = async () => {
@@ -72,7 +90,10 @@ export default function Dashboard() {
         <div className="flex items-start justify-between">
           <div>
             <p className="text-sm text-fog/60">System pulse</p>
-            <h2 className="text-2xl font-semibold">Overall status: {status}</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-semibold">Overall status</h2>
+              <Badge label={status} tone={overallTone} />
+            </div>
           </div>
           <div className="flex gap-2">
             <button className="btn-secondary" onClick={() => restart('lnd')}>Restart LND</button>
@@ -113,9 +134,9 @@ export default function Dashboard() {
           {bitcoin ? (
             <div className="mt-4 text-sm space-y-2">
               <div className="flex justify-between"><span>Host</span><span>{bitcoin.rpchost}</span></div>
-              <div className="flex justify-between"><span>RPC</span><span>{bitcoin.rpc_ok ? 'OK' : 'FAIL'}</span></div>
-              <div className="flex justify-between"><span>ZMQ Raw Block</span><span>{bitcoin.zmq_rawblock_ok ? 'OK' : 'FAIL'}</span></div>
-              <div className="flex justify-between"><span>ZMQ Raw Tx</span><span>{bitcoin.zmq_rawtx_ok ? 'OK' : 'FAIL'}</span></div>
+              <div className="flex justify-between"><span>RPC</span><Badge label={bitcoin.rpc_ok ? 'OK' : 'Fail'} tone={bitcoin.rpc_ok ? 'ok' : 'warn'} /></div>
+              <div className="flex justify-between"><span>ZMQ Raw Block</span><Badge label={bitcoin.zmq_rawblock_ok ? 'OK' : 'Fail'} tone={bitcoin.zmq_rawblock_ok ? 'ok' : 'warn'} /></div>
+              <div className="flex justify-between"><span>ZMQ Raw Tx</span><Badge label={bitcoin.zmq_rawtx_ok ? 'OK' : 'Fail'} tone={bitcoin.zmq_rawtx_ok ? 'ok' : 'warn'} /></div>
               {bitcoin.rpc_ok && (
                 <>
                   <div className="flex justify-between"><span>Chain</span><span>{bitcoin.chain || 'n/a'}</span></div>
@@ -133,7 +154,7 @@ export default function Dashboard() {
           <h3 className="text-lg font-semibold">Postgres</h3>
           {postgres ? (
             <div className="mt-4 text-sm space-y-2">
-              <div className="flex justify-between"><span>Service</span><span>{postgres.service_active ? 'active' : 'inactive'}</span></div>
+              <div className="flex justify-between"><span>Service</span><Badge label={postgres.service_active ? 'Active' : 'Inactive'} tone={postgres.service_active ? 'ok' : 'warn'} /></div>
               <div className="flex justify-between"><span>Version</span><span>{postgres.version || 'n/a'}</span></div>
               <div className="flex justify-between"><span>DB size</span><span>{postgres.db_size_mb} MB</span></div>
               <div className="flex justify-between"><span>Connections</span><span>{postgres.connections}</span></div>
@@ -200,9 +221,24 @@ export default function Dashboard() {
           </div>
           {lnd ? (
             <div className="mt-4 text-sm space-y-2">
-              <div className="flex justify-between"><span>Wallet</span><span>{lnd.wallet_state}</span></div>
-              <div className="flex justify-between"><span>Synced</span><span>{lnd.synced_to_chain ? 'chain' : 'not synced'} / {lnd.synced_to_graph ? 'graph' : 'graph pending'}</span></div>
-              <div className="flex justify-between"><span>Channels</span><span>{lnd.channels.active} active / {lnd.channels.inactive} inactive</span></div>
+              <div className="flex justify-between">
+                <span>Wallet</span>
+                <Badge label={lnd.wallet_state} tone={lnd.wallet_state === 'unlocked' ? 'ok' : 'warn'} />
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Synced</span>
+                <div className="flex items-center gap-2">
+                  <Badge label={lnd.synced_to_chain ? 'chain' : 'chain pending'} tone={lnd.synced_to_chain ? 'ok' : 'warn'} />
+                  <Badge label={lnd.synced_to_graph ? 'graph' : 'graph pending'} tone={lnd.synced_to_graph ? 'ok' : 'warn'} />
+                </div>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Channels</span>
+                <div className="flex items-center gap-2">
+                  <Badge label={`${lnd.channels.active} active`} tone={lnd.channels.active > 0 ? 'ok' : 'warn'} />
+                  <Badge label={`${lnd.channels.inactive} inactive`} tone={lnd.channels.inactive > 0 ? 'warn' : 'muted'} />
+                </div>
+              </div>
               <div className="flex justify-between"><span>Balances</span><span>{lnd.balances.onchain_sat} sat on-chain / {lnd.balances.lightning_sat} sat LN</span></div>
             </div>
           ) : (
