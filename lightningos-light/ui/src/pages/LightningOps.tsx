@@ -431,7 +431,7 @@ export default function LightningOps() {
             <div className="rounded-full border border-white/10 bg-ink/60 px-4 py-2 text-xs text-fog/70">
               Inactive: <span className="text-fog">{inactiveCount}</span>
             </div>
-            <div className="rounded-full border border-ember/30 bg-ember/10 px-4 py-2 text-xs text-ember">
+            <div className="rounded-full border border-glow/30 bg-glow/10 px-4 py-2 text-xs text-glow">
               Opening: <span className="text-fog">{pendingOpenCount}</span>
             </div>
             <div className="rounded-full border border-ember/30 bg-ember/10 px-4 py-2 text-xs text-ember">
@@ -456,16 +456,16 @@ export default function LightningOps() {
         </div>
 
         {(pendingOpen.length > 0 || pendingClose.length > 0) && (
-          <div className="rounded-2xl border border-ember/20 bg-ember/5 p-4">
+          <div className="rounded-2xl border border-brass/30 bg-brass/10 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="text-sm font-semibold text-ember">Pending channels</h4>
-              <p className="text-xs text-ember">Opening: {pendingOpen.length} | Closing: {pendingClose.length}</p>
+              <h4 className="text-sm font-semibold text-brass">Pending channels</h4>
+              <p className="text-xs text-brass">Opening: {pendingOpen.length} | Closing: {pendingClose.length}</p>
             </div>
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-ink/60 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <h5 className="text-xs font-semibold text-fog/70 uppercase tracking-wide">Opening</h5>
-                  <span className="rounded-full px-2 py-1 text-[11px] bg-ember/20 text-ember">{pendingOpen.length}</span>
+                  <span className="rounded-full px-2 py-1 text-[11px] bg-glow/20 text-glow">{pendingOpen.length}</span>
                 </div>
                 {pendingOpen.length ? (
                   <div className="mt-3 space-y-3">
