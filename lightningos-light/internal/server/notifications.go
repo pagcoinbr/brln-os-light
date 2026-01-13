@@ -9,6 +9,7 @@ import (
   "fmt"
   "log"
   "net/http"
+  "net/url"
   "os"
   "strconv"
   "strings"
@@ -251,24 +252,52 @@ func ensureSecretsDir() error {
 
 func ensureNotificationsAdminDSN(logger *log.Logger) (string, error) {
   adminDSN := os.Getenv("NOTIFICATIONS_PG_ADMIN_DSN")
-  if strings.TrimSpace(adminDSN) != "" {
+  if strings.TrimSpace(adminDSN) != "" && !isPlaceholderDSN(adminDSN) && dsnHasPassword(adminDSN) {
     return adminDSN, nil
   }
 
-  if existing, err := readEnvFileValue(notificationsSecretsPath, "NOTIFICATIONS_PG_ADMIN_DSN"); err == nil && strings.TrimSpace(existing) != "" {
+  if existing, err := readEnvFileValue(notificationsSecretsPath, "NOTIFICATIONS_PG_ADMIN_DSN"); err == nil && strings.TrimSpace(existing) != "" && !isPlaceholderDSN(existing) && dsnHasPassword(existing) {
     _ = os.Setenv("NOTIFICATIONS_PG_ADMIN_DSN", existing)
     return existing, nil
   }
 
-  defaultDSN := "postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable"
-  if err := ensureSecretsDir(); err != nil {
-    logger.Printf("notifications warning: failed to prepare secrets dir: %v", err)
+  if derived, err := deriveAdminDSNFromLND(); err == nil && strings.TrimSpace(derived) != "" && !isPlaceholderDSN(derived) {
+    if err := ensureSecretsDir(); err != nil {
+      logger.Printf("notifications warning: failed to prepare secrets dir: %v", err)
+    }
+    if err := writeEnvFileValue(notificationsSecretsPath, "NOTIFICATIONS_PG_ADMIN_DSN", derived); err != nil {
+      logger.Printf("notifications warning: failed to persist NOTIFICATIONS_PG_ADMIN_DSN: %v", err)
+    }
+    _ = os.Setenv("NOTIFICATIONS_PG_ADMIN_DSN", derived)
+    return derived, nil
   }
-  if err := writeEnvFileValue(notificationsSecretsPath, "NOTIFICATIONS_PG_ADMIN_DSN", defaultDSN); err != nil {
-    logger.Printf("notifications warning: failed to persist NOTIFICATIONS_PG_ADMIN_DSN: %v", err)
+
+  return "", errors.New("NOTIFICATIONS_PG_ADMIN_DSN not set")
+}
+
+func deriveAdminDSNFromLND() (string, error) {
+  raw := strings.TrimSpace(os.Getenv("LND_PG_DSN"))
+  if raw == "" || isPlaceholderDSN(raw) {
+    return "", errors.New("LND_PG_DSN not set")
   }
-  _ = os.Setenv("NOTIFICATIONS_PG_ADMIN_DSN", defaultDSN)
-  return defaultDSN, nil
+  parsed, err := url.Parse(raw)
+  if err != nil {
+    return "", err
+  }
+  parsed.Path = "/postgres"
+  return parsed.String(), nil
+}
+
+func dsnHasPassword(raw string) bool {
+  parsed, err := url.Parse(raw)
+  if err != nil {
+    return false
+  }
+  if parsed.User == nil {
+    return false
+  }
+  _, ok := parsed.User.Password()
+  return ok
 }
 
 func isPlaceholderDSN(dsn string) bool {

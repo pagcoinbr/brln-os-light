@@ -60,7 +60,7 @@ ensure_secrets_env_defaults() {
     echo "NOTIFICATIONS_PG_DSN=postgres://losapp:CHANGE_ME@127.0.0.1:5432/lightningos?sslmode=disable" >> "$file"
   fi
   if ! grep -q '^NOTIFICATIONS_PG_ADMIN_DSN=' "$file"; then
-    echo "NOTIFICATIONS_PG_ADMIN_DSN=postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable" >> "$file"
+    echo "NOTIFICATIONS_PG_ADMIN_DSN=postgres://losadmin:CHANGE_ME@127.0.0.1:5432/postgres?sslmode=disable" >> "$file"
   fi
   chown root:lightningos "$file"
   chmod 660 "$file"
@@ -672,6 +672,7 @@ postgres_setup() {
   if [[ "$role_exists" == "1" ]]; then
     ensure_dsn "$db_user" "$db_name"
   fi
+  ensure_notifications_admin
   print_ok "PostgreSQL ready"
 }
 
@@ -724,6 +725,45 @@ ensure_dsn() {
     update_dsn "$db_user" "$pw" "$db_name"
   fi
   sync_lnd_dsn_from_secrets
+}
+
+update_notifications_admin_dsn() {
+  local db_user="$1"
+  local db_pass="$2"
+  local dsn="postgres://${db_user}:${db_pass}@127.0.0.1:5432/postgres?sslmode=disable"
+  if grep -q '^NOTIFICATIONS_PG_ADMIN_DSN=' /etc/lightningos/secrets.env; then
+    sed -i "s|^NOTIFICATIONS_PG_ADMIN_DSN=.*|NOTIFICATIONS_PG_ADMIN_DSN=${dsn}|" /etc/lightningos/secrets.env
+  else
+    echo "NOTIFICATIONS_PG_ADMIN_DSN=${dsn}" >> /etc/lightningos/secrets.env
+  fi
+  chmod 660 /etc/lightningos/secrets.env
+}
+
+ensure_notifications_admin() {
+  local admin_user="losadmin"
+  local current
+  current=$(grep '^NOTIFICATIONS_PG_ADMIN_DSN=' /etc/lightningos/secrets.env | cut -d= -f2- || true)
+  if [[ -n "$current" && "$current" != *"CHANGE_ME"* ]]; then
+    return 0
+  fi
+
+  local role_exists
+  role_exists=$(psql_as_postgres -tAc "select 1 from pg_roles where rolname='${admin_user}'" 2>&1)
+  role_exists=$(echo "$role_exists" | tr -d '[:space:]')
+
+  local pw
+  pw=$( (set +o pipefail; tr -dc A-Za-z0-9 </dev/urandom | head -c 24) )
+  if [[ -z "$pw" ]]; then
+    pw=$( (set +o pipefail; tr -dc A-Za-z0-9 </dev/urandom | head -c 32) )
+  fi
+
+  if [[ "$role_exists" != "1" ]]; then
+    psql_exec "Create notifications admin role" -c "create role ${admin_user} with login createdb createrole password '${pw}'"
+  else
+    psql_exec "Alter notifications admin password" -c "alter role ${admin_user} with password '${pw}'"
+  fi
+
+  update_notifications_admin_dsn "$admin_user" "$pw"
 }
 
 install_lnd() {
