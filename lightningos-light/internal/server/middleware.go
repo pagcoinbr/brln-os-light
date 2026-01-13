@@ -28,3 +28,9 @@ func (w *responseWriter) WriteHeader(status int) {
   w.status = status
   w.ResponseWriter.WriteHeader(status)
 }
+
+func (w *responseWriter) Flush() {
+  if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+    flusher.Flush()
+  }
+}
