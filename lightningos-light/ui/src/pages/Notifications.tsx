@@ -92,6 +92,15 @@ const arrowForDirection = (value: string) => {
   return { label: '.', tone: 'text-fog/50' }
 }
 
+const formatFeeRate = (amount: number, fee: number) => {
+  if (!amount || amount <= 0 || !fee || fee <= 0) return ''
+  const ratio = fee / amount
+  const percentRaw = ratio * 100
+  const percent = percentRaw.toFixed(3).replace(/\.?0+$/, '')
+  const ppm = Math.round(ratio * 1_000_000)
+  return `${percent}% ${ppm}ppm`
+}
+
 export default function Notifications() {
   const [items, setItems] = useState<Notification[]>([])
   const [status, setStatus] = useState('Loading notifications...')
@@ -345,10 +354,20 @@ export default function Notifications() {
             const title = `${labelForType(item.type)} ${labelForAction(item.action)}`
             const statusLabel = normalizeStatus(item.status)
             const peer = item.peer_alias || (item.peer_pubkey ? item.peer_pubkey.slice(0, 16) : '')
+            const feeRate = formatFeeRate(item.amount_sat, item.fee_sat)
+            let feeDetail = ''
+            if (feeRate) {
+              if (item.type === 'forward') {
+                feeDetail = `Earned ${item.fee_sat} sats (${feeRate})`
+              } else if (item.type === 'rebalance') {
+                feeDetail = `Fee ${item.fee_sat} sats (${feeRate})`
+              }
+            }
             const detail = [
               peer ? `Peer ${peer}` : '',
               item.channel_point ? `Channel ${item.channel_point.slice(0, 16)}...` : '',
               item.txid ? `Tx ${item.txid.slice(0, 16)}...` : '',
+              feeDetail,
             ].filter(Boolean).join(' - ')
             return (
               <div key={item.id} className="grid items-center gap-3 border-b border-white/10 pb-3 sm:grid-cols-[160px_1fr_auto_auto]">
