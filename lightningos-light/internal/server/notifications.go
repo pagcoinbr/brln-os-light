@@ -878,17 +878,25 @@ func (n *Notifier) channelEventToNotification(update *lnrpc.ChannelEventUpdate) 
     if ch == nil {
       return Notification{}, ""
     }
+    txid := hex.EncodeToString(ch.Txid)
+    channelPoint := ""
+    if txid != "" {
+      channelPoint = fmt.Sprintf("%s:%d", txid, ch.OutputIndex)
+    }
     evt := Notification{
       OccurredAt: now,
       Type: "channel",
       Action: "opening",
       Direction: "neutral",
       Status: "PENDING",
-      AmountSat: ch.Capacity,
-      PeerPubkey: ch.RemotePubkey,
-      ChannelPoint: ch.ChannelPoint,
+      AmountSat: 0,
+      ChannelPoint: channelPoint,
+      Txid: txid,
     }
-    return evt, fmt.Sprintf("channel:opening:%s", ch.ChannelPoint)
+    if channelPoint == "" {
+      return evt, fmt.Sprintf("channel:opening:%d", time.Now().UnixNano())
+    }
+    return evt, fmt.Sprintf("channel:opening:%s", channelPoint)
   default:
     return Notification{}, ""
   }
