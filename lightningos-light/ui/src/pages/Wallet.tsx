@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { createInvoice, decodeInvoice, getWalletAddress, getWalletSummary, payInvoice } from '../api'
+import { createInvoice, decodeInvoice, getMempoolFees, getWalletAddress, getWalletSummary, payInvoice, sendOnchain } from '../api'
 
 const emptySummary = {
   balances: {
@@ -19,6 +19,14 @@ export default function Wallet() {
   const [addressLoading, setAddressLoading] = useState(false)
   const [showAddress, setShowAddress] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [sendOpen, setSendOpen] = useState(false)
+  const [sendAddress, setSendAddress] = useState('')
+  const [sendAmount, setSendAmount] = useState('')
+  const [sendFeeRate, setSendFeeRate] = useState('')
+  const [sendFeeHint, setSendFeeHint] = useState<{ fastest?: number; hour?: number } | null>(null)
+  const [sendFeeStatus, setSendFeeStatus] = useState('')
+  const [sendStatus, setSendStatus] = useState('')
+  const [sendRunning, setSendRunning] = useState(false)
   const [amount, setAmount] = useState('')
   const [memo, setMemo] = useState('')
   const [invoice, setInvoice] = useState('')
@@ -54,6 +62,26 @@ export default function Wallet() {
     return () => {
       mounted = false
       clearInterval(timer)
+    }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    getMempoolFees()
+      .then((res: any) => {
+        if (!mounted) return
+        const fastest = Number(res?.fastestFee || 0)
+        const hour = Number(res?.hourFee || 0)
+        setSendFeeHint({ fastest, hour })
+        setSendFeeRate((prev) => (prev ? prev : fastest > 0 ? String(fastest) : prev))
+        setSendFeeStatus('')
+      })
+      .catch(() => {
+        if (!mounted) return
+        setSendFeeStatus('Fee suggestions unavailable.')
+      })
+    return () => {
+      mounted = false
     }
   }, [])
 
@@ -104,11 +132,35 @@ export default function Wallet() {
     })
   }
 
-  const formatActivityType = (value: string) => {
-    if (!value) return 'Activity'
-    if (value.toLowerCase() === 'invoice') return 'Invoice'
-    if (value.toLowerCase() === 'payment') return 'Payment'
-    return value
+  const activityDirection = (item: any) => {
+    const direct = String(item?.direction || '').toLowerCase()
+    if (direct === 'in' || direct === 'out') return direct
+    const type = String(item?.type || '').toLowerCase()
+    if (type === 'invoice' || type === 'onchain_in') return 'in'
+    if (type === 'payment' || type === 'onchain_out') return 'out'
+    return ''
+  }
+
+  const activityNetwork = (item: any) => {
+    const network = String(item?.network || '').toLowerCase()
+    if (network === 'lightning' || network === 'onchain') return network
+    const type = String(item?.type || '').toLowerCase()
+    if (type === 'invoice' || type === 'payment') return 'lightning'
+    if (type.startsWith('onchain')) return 'onchain'
+    return ''
+  }
+
+  const formatActivityType = (item: any) => {
+    const type = String(item?.type || '').toLowerCase()
+    const network = activityNetwork(item)
+    const direction = activityDirection(item)
+    let label = 'Activity'
+    if (type === 'invoice') label = 'Invoice'
+    else if (type === 'payment') label = 'Payment'
+    else if (network === 'onchain') label = direction === 'out' ? 'On-chain send' : 'On-chain deposit'
+    else if (type) label = type.charAt(0).toUpperCase() + type.slice(1)
+    if (network === 'lightning') return `⚡ ${label}`
+    return label
   }
 
   const orderedActivity = [...activity].sort((a: any, b: any) => {
@@ -143,6 +195,42 @@ export default function Wallet() {
       setCopied(true)
     } catch {
       setAddressStatus('Copy failed. Select and copy manually.')
+    }
+  }
+
+  const handleToggleSend = () => {
+    setSendOpen((prev) => !prev)
+    setSendStatus('')
+  }
+
+  const handleSendOnchain = async () => {
+    const target = sendAddress.trim()
+    const amountSat = Number(sendAmount || 0)
+    const feeRate = Number(sendFeeRate || 0)
+    if (!target) {
+      setSendStatus('Destination address required.')
+      return
+    }
+    if (amountSat <= 0) {
+      setSendStatus('Amount must be positive.')
+      return
+    }
+    setSendRunning(true)
+    setSendStatus('Sending on-chain...')
+    try {
+      const res = await sendOnchain({
+        address: target,
+        amount_sat: amountSat,
+        sat_per_vbyte: feeRate > 0 ? feeRate : undefined
+      })
+      const txid = res?.txid ? ` Txid: ${res.txid}` : ''
+      setSendStatus(`On-chain send broadcast.${txid}`)
+      setSendAddress('')
+      setSendAmount('')
+    } catch (err: any) {
+      setSendStatus(err?.message || 'On-chain send failed.')
+    } finally {
+      setSendRunning(false)
     }
   }
 
@@ -200,18 +288,23 @@ export default function Wallet() {
         <h2 className="text-2xl font-semibold">Wallet</h2>
         <p className="text-fog/60">Manage Lightning and on-chain balances.</p>
         <div className="mt-4 grid gap-4 lg:grid-cols-2 text-sm">
-          <div>
-            <div className="flex items-center justify-between gap-3">
+          <div className="rounded-2xl border border-white/10 bg-ink/60 p-4 space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-fog/60">On-chain</p>
                 <p className="text-xl">{onchainBalance} sats</p>
               </div>
-              <button className="btn-secondary text-xs px-3 py-1.5" onClick={handleAddFunds}>
-                Add funds
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-secondary text-xs px-3 py-1.5" onClick={handleAddFunds}>
+                  Add funds
+                </button>
+                <button className="btn-secondary text-xs px-3 py-1.5" onClick={handleToggleSend}>
+                  {sendOpen ? 'Hide send' : 'Send funds'}
+                </button>
+              </div>
             </div>
             {showAddress && (
-              <div className="mt-3 rounded-2xl border border-white/10 bg-ink/60 p-3">
+              <div className="rounded-2xl border border-white/10 bg-ink/70 p-3">
                 <div className="flex items-center justify-between text-xs text-fog/60">
                   <span>On-chain deposit address (SegWit)</span>
                   <button className="text-fog/50 hover:text-fog" onClick={() => setShowAddress(false)}>
@@ -236,10 +329,76 @@ export default function Wallet() {
                 )}
               </div>
             )}
+            {sendOpen && (
+              <div className="rounded-2xl border border-white/10 bg-ink/80 p-3 space-y-3">
+                <div className="flex items-center justify-between text-xs text-fog/60">
+                  <span>Send on-chain</span>
+                  <button className="text-fog/50 hover:text-fog" onClick={handleToggleSend}>
+                    Close
+                  </button>
+                </div>
+                <input
+                  className="input-field"
+                  placeholder="Destination address"
+                  value={sendAddress}
+                  onChange={(e) => setSendAddress(e.target.value)}
+                />
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <input
+                    className="input-field"
+                    placeholder="Amount (sats)"
+                    type="number"
+                    min={1}
+                    value={sendAmount}
+                    onChange={(e) => setSendAmount(e.target.value)}
+                  />
+                  <div className="space-y-2">
+                    <label className="text-xs text-fog/60">
+                      Fee rate (sat/vB)
+                      <span className="ml-2 text-fog/50">
+                        Fastest: {sendFeeHint?.fastest ?? '-'} | 1h: {sendFeeHint?.hour ?? '-'}
+                      </span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        className="input-field flex-1 min-w-[120px]"
+                        placeholder="Auto"
+                        type="number"
+                        min={1}
+                        value={sendFeeRate}
+                        onChange={(e) => setSendFeeRate(e.target.value)}
+                      />
+                      <button
+                        className="btn-secondary text-xs px-3 py-2"
+                        type="button"
+                        onClick={() => {
+                          if (sendFeeHint?.fastest) {
+                            setSendFeeRate(String(sendFeeHint.fastest))
+                          }
+                        }}
+                        disabled={!sendFeeHint?.fastest}
+                      >
+                        Use fastest
+                      </button>
+                    </div>
+                    {sendFeeStatus && <p className="text-xs text-fog/50">{sendFeeStatus}</p>}
+                  </div>
+                </div>
+                <button
+                  className="btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                  onClick={handleSendOnchain}
+                  disabled={sendRunning}
+                >
+                  {sendRunning ? 'Sending...' : 'Send on-chain'}
+                </button>
+                {sendStatus && <p className="text-xs text-brass break-words">{sendStatus}</p>}
+              </div>
+            )}
           </div>
-          <div>
+          <div className="rounded-2xl border border-white/10 bg-ink/60 p-4">
             <p className="text-fog/60">Lightning</p>
             <p className="text-xl">{lightningBalance} sats</p>
+            <p className="mt-2 text-xs text-fog/50">Use the cards below to receive or send over Lightning.</p>
           </div>
         </div>
         {summaryLoading && !summaryError && (
@@ -312,11 +471,11 @@ export default function Wallet() {
           {summaryError ? (
             <p className="text-fog/60">Activity unavailable until LND is reachable.</p>
           ) : orderedActivity.length ? orderedActivity.map((item: any, idx: number) => {
-            const typeLabel = formatActivityType(item.type)
+            const typeLabel = formatActivityType(item)
             const statusLabel = String(item.status || 'unknown').replace(/_/g, ' ').toUpperCase()
-            const isInbound = String(item.type || '').toLowerCase() === 'invoice'
-            const arrow = isInbound ? '<-' : '->'
-            const arrowTone = isInbound ? 'text-glow' : 'text-ember'
+            const direction = activityDirection(item)
+            const arrow = direction === 'in' ? '<-' : direction === 'out' ? '->' : '.'
+            const arrowTone = direction === 'in' ? 'text-glow' : direction === 'out' ? 'text-ember' : 'text-fog/50'
             return (
               <div key={`${item.type}-${idx}`} className="grid items-center gap-3 border-b border-white/10 pb-2 sm:grid-cols-[160px_1fr_auto_auto]">
                 <span className="text-xs text-fog/50">{formatTimestamp(item.timestamp)}</span>

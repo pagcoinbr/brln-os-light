@@ -525,6 +525,33 @@ func (c *Client) PayInvoice(ctx context.Context, paymentRequest string) error {
   return err
 }
 
+func (c *Client) SendCoins(ctx context.Context, address string, amountSat int64, satPerVbyte int64) (string, error) {
+  conn, err := c.dial(ctx, true)
+  if err != nil {
+    return "", err
+  }
+  defer conn.Close()
+
+  client := lnrpc.NewLightningClient(conn)
+
+  req := &lnrpc.SendCoinsRequest{
+    Addr: address,
+    Amount: amountSat,
+  }
+  if satPerVbyte > 0 {
+    req.SatPerVbyte = uint64(satPerVbyte)
+  }
+
+  resp, err := client.SendCoins(ctx, req)
+  if err != nil {
+    return "", err
+  }
+  if resp == nil {
+    return "", nil
+  }
+  return resp.Txid, nil
+}
+
 func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, error) {
   if limit <= 0 {
     limit = 20
@@ -550,6 +577,8 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
       }
       items = append(items, RecentActivity{
         Type: "invoice",
+        Network: "lightning",
+        Direction: "in",
         AmountSat: inv.Value,
         Memo: inv.Memo,
         Timestamp: time.Unix(inv.CreationDate, 0).UTC(),
@@ -562,6 +591,8 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
     for _, pay := range payments.Payments {
       items = append(items, RecentActivity{
         Type: "payment",
+        Network: "lightning",
+        Direction: "out",
         AmountSat: pay.ValueSat,
         Memo: pay.PaymentRequest,
         Timestamp: time.Unix(pay.CreationDate, 0).UTC(),
@@ -569,6 +600,58 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
         PaymentHash: strings.ToLower(pay.PaymentHash),
       })
     }
+  }
+
+  return items, nil
+}
+
+func (c *Client) ListOnchain(ctx context.Context, limit int) ([]RecentActivity, error) {
+  if limit <= 0 {
+    limit = 20
+  }
+
+  conn, err := c.dial(ctx, true)
+  if err != nil {
+    return nil, err
+  }
+  defer conn.Close()
+
+  client := lnrpc.NewLightningClient(conn)
+  resp, err := client.GetTransactions(ctx, &lnrpc.GetTransactionsRequest{
+    MaxTransactions: uint32(limit),
+  })
+  if err != nil {
+    return nil, err
+  }
+
+  items := make([]RecentActivity, 0, len(resp.Transactions))
+  for _, tx := range resp.Transactions {
+    if tx == nil {
+      continue
+    }
+    amount := tx.Amount
+    if amount == 0 {
+      continue
+    }
+    direction := "in"
+    if amount < 0 {
+      direction = "out"
+      amount = amount * -1
+    }
+    status := "PENDING"
+    if tx.NumConfirmations > 0 {
+      status = "CONFIRMED"
+    }
+    items = append(items, RecentActivity{
+      Type: "onchain",
+      Network: "onchain",
+      Direction: direction,
+      AmountSat: amount,
+      Memo: tx.Label,
+      Timestamp: time.Unix(tx.TimeStamp, 0).UTC(),
+      Status: status,
+      Txid: tx.TxHash,
+    })
   }
 
   return items, nil
@@ -1060,9 +1143,12 @@ type PendingChannelInfo struct {
 
 type RecentActivity struct {
   Type string `json:"type"`
+  Network string `json:"network,omitempty"`
+  Direction string `json:"direction,omitempty"`
   AmountSat int64 `json:"amount_sat"`
   Memo string `json:"memo"`
   Timestamp time.Time `json:"timestamp"`
   Status string `json:"status"`
+  Txid string `json:"txid,omitempty"`
   PaymentHash string `json:"-"`
 }

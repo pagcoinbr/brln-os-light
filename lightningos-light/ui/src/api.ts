@@ -80,6 +80,8 @@ export const getMempoolFees = () => request('/api/mempool/fees')
 
 export const getWalletSummary = () => request('/api/wallet/summary')
 export const getWalletAddress = () => request('/api/wallet/address', { method: 'POST' })
+export const sendOnchain = (payload: { address: string; amount_sat: number; sat_per_vbyte?: number }) =>
+  request('/api/wallet/send', { method: 'POST', body: JSON.stringify(payload) })
 export const createInvoice = (payload: { amount_sat: number; memo: string }) =>
   request('/api/wallet/invoice', { method: 'POST', body: JSON.stringify(payload) })
 export const decodeInvoice = (payload: { payment_request: string }) =>

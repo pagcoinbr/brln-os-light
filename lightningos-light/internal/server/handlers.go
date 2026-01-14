@@ -1670,13 +1670,13 @@ func (s *Server) handleWalletSummary(w http.ResponseWriter, r *http.Request) {
     return
   }
 
-  activity, _ := s.lnd.ListRecent(ctx, walletActivityFetchLimit)
+  lightningActivity, _ := s.lnd.ListRecent(ctx, walletActivityFetchLimit)
   hashes := s.walletActivitySet()
   if len(hashes) == 0 {
-    activity = activity[:0]
+    lightningActivity = lightningActivity[:0]
   } else {
-    filtered := activity[:0]
-    for _, item := range activity {
+    filtered := lightningActivity[:0]
+    for _, item := range lightningActivity {
       if item.PaymentHash == "" {
         continue
       }
@@ -1684,8 +1684,12 @@ func (s *Server) handleWalletSummary(w http.ResponseWriter, r *http.Request) {
         filtered = append(filtered, item)
       }
     }
-    activity = filtered
+    lightningActivity = filtered
   }
+
+  onchainActivity, _ := s.lnd.ListOnchain(ctx, walletActivityFetchLimit)
+
+  activity := append(lightningActivity, onchainActivity...)
 
   resp := map[string]any{
     "balances": map[string]int64{
@@ -1827,6 +1831,45 @@ func (s *Server) handleWalletPay(w http.ResponseWriter, r *http.Request) {
   }
 
   writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleWalletSend(w http.ResponseWriter, r *http.Request) {
+  var req struct {
+    Address string `json:"address"`
+    AmountSat int64 `json:"amount_sat"`
+    SatPerVbyte int64 `json:"sat_per_vbyte"`
+  }
+  if err := readJSON(r, &req); err != nil {
+    writeError(w, http.StatusBadRequest, "invalid json")
+    return
+  }
+  address := strings.TrimSpace(req.Address)
+  if address == "" {
+    writeError(w, http.StatusBadRequest, "address required")
+    return
+  }
+  if req.AmountSat <= 0 {
+    writeError(w, http.StatusBadRequest, "amount_sat must be positive")
+    return
+  }
+
+  ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+  defer cancel()
+
+  txid, err := s.lnd.SendCoins(ctx, address, req.AmountSat, req.SatPerVbyte)
+  if err != nil {
+    msg := lndRPCErrorMessage(err)
+    if isTimeoutError(err) {
+      msg = lndStatusMessage(err)
+    }
+    if msg == "" || msg == "LND error" {
+      msg = "On-chain send failed"
+    }
+    writeError(w, http.StatusInternalServerError, msg)
+    return
+  }
+
+  writeJSON(w, http.StatusOK, map[string]string{"txid": txid})
 }
 
 type rpcStatusError struct {
