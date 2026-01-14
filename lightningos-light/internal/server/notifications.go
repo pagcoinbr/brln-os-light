@@ -896,7 +896,7 @@ func (n *Notifier) channelEventToNotification(update *lnrpc.ChannelEventUpdate) 
     if ch == nil {
       return Notification{}, ""
     }
-    txid := hex.EncodeToString(ch.Txid)
+    txid := txidFromBytes(ch.Txid)
     channelPoint := ""
     if txid != "" {
       channelPoint = fmt.Sprintf("%s:%d", txid, ch.OutputIndex)
@@ -963,6 +963,17 @@ func (n *Notifier) lookupPendingChannel(channelPoint string, txid string) *lndcl
   }
 
   return nil
+}
+
+func txidFromBytes(raw []byte) string {
+  if len(raw) == 0 {
+    return ""
+  }
+  rev := make([]byte, len(raw))
+  for i := range raw {
+    rev[len(raw)-1-i] = raw[i]
+  }
+  return hex.EncodeToString(rev)
 }
 
 func (n *Notifier) lookupNodeAlias(pubkey string) string {
