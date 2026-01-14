@@ -115,3 +115,20 @@ func (s *Server) handleAppStop(w http.ResponseWriter, r *http.Request) {
   }
   writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
+
+func (s *Server) handleAppResetAdmin(w http.ResponseWriter, r *http.Request) {
+  appID := chi.URLParam(r, "id")
+  if appID == "" {
+    writeError(w, http.StatusBadRequest, "missing app id")
+    return
+  }
+  if appID != "lndg" {
+    writeError(w, http.StatusBadRequest, "reset not supported for this app")
+    return
+  }
+  if err := s.resetLndgAdminPassword(r.Context()); err != nil {
+    writeError(w, http.StatusInternalServerError, err.Error())
+    return
+  }
+  writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}

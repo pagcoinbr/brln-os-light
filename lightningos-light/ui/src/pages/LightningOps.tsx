@@ -621,27 +621,27 @@ export default function LightningOps() {
                     <span className={`rounded-full px-3 py-1 text-xs ${ch.active ? 'bg-glow/20 text-glow' : 'bg-ember/20 text-ember'}`}>
                       {ch.active ? 'Active' : 'Inactive'}
                     </span>
+                </div>
+                <div className="mt-3 grid gap-3 lg:grid-cols-5 text-xs text-fog/70">
+                  <div>Local: <span className="text-fog">{ch.local_balance_sat} sats</span></div>
+                  <div>Remote: <span className="text-fog">{ch.remote_balance_sat} sats</span></div>
+                  <div>
+                    Out rate:{' '}
+                    <span className="text-fog">
+                      {typeof ch.fee_rate_ppm === 'number' ? `${ch.fee_rate_ppm} ppm` : '-'}
+                    </span>
                   </div>
-                  <div className="mt-3 grid gap-3 lg:grid-cols-5 text-xs text-fog/70">
-                    <div>Local: <span className="text-fog">{ch.local_balance_sat} sats</span></div>
-                    <div>Remote: <span className="text-fog">{ch.remote_balance_sat} sats</span></div>
-                    <div>
-                      Out base:{' '}
-                      <span className="text-fog">
-                        {typeof ch.base_fee_msat === 'number' ? `${ch.base_fee_msat} msats` : '-'}
-                      </span>
-                    </div>
-                    <div>
-                      Out rate:{' '}
-                      <span className="text-fog">
-                        {typeof ch.fee_rate_ppm === 'number' ? `${ch.fee_rate_ppm} ppm` : '-'}
-                      </span>
-                    </div>
-                    <div>
-                      In rate:{' '}
-                      <span className="text-fog">
-                        {typeof ch.inbound_fee_rate_ppm === 'number' ? `${ch.inbound_fee_rate_ppm} ppm` : '-'}
-                      </span>
+                  <div>
+                    Out base:{' '}
+                    <span className="text-fog">
+                      {typeof ch.base_fee_msat === 'number' ? `${ch.base_fee_msat} msats` : '-'}
+                    </span>
+                  </div>
+                  <div>
+                    In rate:{' '}
+                    <span className="text-fog">
+                      {typeof ch.inbound_fee_rate_ppm === 'number' ? `${ch.inbound_fee_rate_ppm} ppm` : '-'}
+                    </span>
                     </div>
                   </div>
                   <div className="mt-2 text-xs text-fog/50">
@@ -813,19 +813,19 @@ export default function LightningOps() {
           <div className="grid gap-4 lg:grid-cols-3">
             <input
               className="input-field"
-              placeholder="Base fee (msats)"
-              type="number"
-              min={0}
-              value={baseFeeMsat}
-              onChange={(e) => setBaseFeeMsat(e.target.value)}
-            />
-            <input
-              className="input-field"
               placeholder="Fee rate (ppm)"
               type="number"
               min={0}
               value={feeRatePpm}
               onChange={(e) => setFeeRatePpm(e.target.value)}
+            />
+            <input
+              className="input-field"
+              placeholder="Base fee (msats)"
+              type="number"
+              min={0}
+              value={baseFeeMsat}
+              onChange={(e) => setBaseFeeMsat(e.target.value)}
             />
             <input
               className="input-field"
@@ -848,17 +848,17 @@ export default function LightningOps() {
             <div className="grid gap-4 lg:grid-cols-2">
               <input
                 className="input-field"
-                placeholder="Inbound base (msats)"
-                type="number"
-                value={inboundBaseMsat}
-                onChange={(e) => setInboundBaseMsat(e.target.value)}
-              />
-              <input
-                className="input-field"
                 placeholder="Inbound fee rate (ppm)"
                 type="number"
                 value={inboundFeeRatePpm}
                 onChange={(e) => setInboundFeeRatePpm(e.target.value)}
+              />
+              <input
+                className="input-field"
+                placeholder="Inbound base (msats)"
+                type="number"
+                value={inboundBaseMsat}
+                onChange={(e) => setInboundBaseMsat(e.target.value)}
               />
             </div>
           )}
@@ -936,4 +936,3 @@ export default function LightningOps() {
     </section>
   )
 }
-

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getApps, installApp, startApp, stopApp, uninstallApp } from '../api'
+import { getApps, installApp, resetAppAdmin, startApp, stopApp, uninstallApp } from '../api'
 import lndgIcon from '../assets/apps/lndg.ico'
 import bitcoincoreIcon from '../assets/apps/bitcoincore.svg'
 
@@ -70,6 +70,24 @@ export default function AppStore() {
     }
   }
 
+  const handleResetAdmin = async (id: string) => {
+    setMessage('')
+    setBusy((prev) => ({ ...prev, [id]: 'reset-admin' }))
+    try {
+      await resetAppAdmin(id)
+      setMessage('LNDg admin password reset to the stored value.')
+      loadApps()
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Reset failed.')
+    } finally {
+      setBusy((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+    }
+  }
+
   const host = window.location.hostname
 
   return (
@@ -83,6 +101,8 @@ export default function AppStore() {
       <div className="grid gap-6 lg:grid-cols-2">
         {apps.map((app) => {
           const isBusy = Boolean(busy[app.id])
+          const canResetAdmin = app.id === 'lndg' && app.status === 'running'
+          const resetTitle = canResetAdmin ? 'Reset to stored admin password' : 'Start LNDg to reset password'
           const statusStyle = statusStyles[app.status] || statusStyles.unknown
           const internalRoute = internalRoutes[app.id]
           const openUrl = app.port ? `http://${host}:${app.port}` : ''
@@ -137,6 +157,16 @@ export default function AppStore() {
                         Open
                       </a>
                     )}
+                    {app.id === 'lndg' && (
+                      <button
+                        className="btn-secondary"
+                        disabled={isBusy || !canResetAdmin}
+                        title={resetTitle}
+                        onClick={() => handleResetAdmin(app.id)}
+                      >
+                        {isBusy ? 'Resetting...' : 'Reset admin password'}
+                      </button>
+                    )}
                     <button className="btn-secondary" disabled={isBusy} onClick={() => handleAction(app.id, 'stop')}>
                       {isBusy ? 'Stopping...' : 'Stop'}
                     </button>
@@ -150,6 +180,16 @@ export default function AppStore() {
                     <button className="btn-primary" disabled={isBusy} onClick={() => handleAction(app.id, 'start')}>
                       {isBusy ? 'Starting...' : 'Start'}
                     </button>
+                    {app.id === 'lndg' && (
+                      <button
+                        className="btn-secondary"
+                        disabled={isBusy || !canResetAdmin}
+                        title={resetTitle}
+                        onClick={() => handleResetAdmin(app.id)}
+                      >
+                        {isBusy ? 'Resetting...' : 'Reset admin password'}
+                      </button>
+                    )}
                     <button className="btn-secondary" disabled={isBusy} onClick={() => handleAction(app.id, 'uninstall')}>
                       Uninstall
                     </button>

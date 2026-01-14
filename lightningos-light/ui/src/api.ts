@@ -134,3 +134,4 @@ export const installApp = (id: string) => request(`/api/apps/${id}/install`, { m
 export const uninstallApp = (id: string) => request(`/api/apps/${id}/uninstall`, { method: 'POST' })
 export const startApp = (id: string) => request(`/api/apps/${id}/start`, { method: 'POST' })
 export const stopApp = (id: string) => request(`/api/apps/${id}/stop`, { method: 'POST' })
+export const resetAppAdmin = (id: string) => request(`/api/apps/${id}/reset-admin`, { method: 'POST' })

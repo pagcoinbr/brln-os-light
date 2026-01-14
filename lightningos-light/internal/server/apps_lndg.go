@@ -227,6 +227,88 @@ func (s *Server) stopLndg(ctx context.Context) error {
   return runCompose(ctx, paths.Root, paths.ComposePath, "stop")
 }
 
+func (s *Server) resetLndgAdminPassword(ctx context.Context) error {
+  paths := lndgAppPaths()
+  if !fileExists(paths.ComposePath) {
+    return errors.New("LNDg is not installed")
+  }
+
+  adminUser := readEnvValue(paths.EnvPath, "LNDG_ADMIN_USER")
+  if adminUser == "" {
+    adminUser = "lndg-admin"
+  }
+
+  adminPassword := readSecretFile(paths.AdminPasswordPath)
+  if adminPassword == "" {
+    adminPassword = readEnvValue(paths.EnvPath, "LNDG_ADMIN_PASSWORD")
+  }
+  if adminPassword == "" {
+    return errors.New("LNDG_ADMIN_PASSWORD missing")
+  }
+
+  if err := setEnvValue(paths.EnvPath, "LNDG_ADMIN_PASSWORD", adminPassword); err != nil {
+    return err
+  }
+  if readSecretFile(paths.AdminPasswordPath) != adminPassword {
+    if err := writeFile(paths.AdminPasswordPath, adminPassword+"\n", 0600); err != nil {
+      return err
+    }
+  }
+
+  containerID, err := composeContainerID(ctx, paths.Root, paths.ComposePath, "lndg")
+  if err != nil {
+    return err
+  }
+  if containerID == "" {
+    return errors.New("lndg container not running")
+  }
+
+  script := `python - <<'PY'
+import os
+import sys
+
+sys.path.insert(0, "/app")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "lndg.settings")
+
+import django  # noqa: E402
+django.setup()
+
+from django.contrib.auth import get_user_model  # noqa: E402
+
+username = os.environ.get("LNDG_ADMIN_USER", "lndg-admin")
+password = os.environ.get("LNDG_ADMIN_PASSWORD", "")
+if not password:
+  raise SystemExit("LNDG_ADMIN_PASSWORD is required")
+
+User = get_user_model()
+user, _ = User.objects.get_or_create(username=username, defaults={"email": "admin@lndg.local"})
+user.set_password(password)
+user.is_staff = True
+user.is_superuser = True
+user.save()
+print("ok")
+PY`
+
+  _, err = system.RunCommandWithSudo(
+    ctx,
+    "docker",
+    "exec",
+    "-i",
+    "-e",
+    "LNDG_ADMIN_USER="+adminUser,
+    "-e",
+    "LNDG_ADMIN_PASSWORD="+adminPassword,
+    containerID,
+    "sh",
+    "-c",
+    script,
+  )
+  if err != nil {
+    return err
+  }
+  return nil
+}
+
 func lndgComposeContents(paths lndgPaths) string {
   return fmt.Sprintf(`services:
   lndg-db:
