@@ -26,6 +26,7 @@ UNATTENDED_NOTICE_SHOWN=0
 LND_DIR="/data/lnd"
 LND_CONF="${LND_DIR}/lnd.conf"
 LND_FIX_PERMS_SCRIPT="/usr/local/sbin/lightningos-fix-lnd-perms"
+TERMINAL_SCRIPT="/usr/local/sbin/lightningos-terminal"
 
 CURRENT_STEP=""
 LOG_FILE="/var/log/lightningos-install.log"
@@ -77,6 +78,9 @@ ensure_secrets_env_defaults() {
   fi
   if ! grep -q '^TERMINAL_PORT=' "$file"; then
     echo "TERMINAL_PORT=7681" >> "$file"
+  fi
+  if ! grep -q '^TERMINAL_WS_ORIGIN=' "$file"; then
+    echo "TERMINAL_WS_ORIGIN=" >> "$file"
   fi
   local current_credential
   current_credential=$(grep '^TERMINAL_CREDENTIAL=' "$file" | cut -d= -f2- || true)
@@ -512,8 +516,10 @@ install_node() {
 install_gotty() {
   print_step "Installing GoTTY ${GOTTY_VERSION}"
   if command -v gotty >/dev/null 2>&1; then
-    print_ok "GoTTY already installed"
-    return
+    if gotty --version 2>/dev/null | grep -q "${GOTTY_VERSION}"; then
+      print_ok "GoTTY already installed"
+      return
+    fi
   fi
 
   local tmp
@@ -539,10 +545,19 @@ install_helper_scripts() {
   if [[ -f "$src" ]]; then
     mkdir -p "$(dirname "$LND_FIX_PERMS_SCRIPT")"
     install -m 0755 "$src" "$LND_FIX_PERMS_SCRIPT"
-    print_ok "Helper scripts installed"
   else
     print_warn "Missing helper script: $src"
   fi
+
+  local terminal_src="$REPO_ROOT/scripts/lightningos-terminal.sh"
+  if [[ -f "$terminal_src" ]]; then
+    mkdir -p "$(dirname "$TERMINAL_SCRIPT")"
+    install -m 0755 "$terminal_src" "$TERMINAL_SCRIPT"
+  else
+    print_warn "Missing helper script: $terminal_src"
+  fi
+
+  print_ok "Helper scripts installed"
 }
 
 prepare_lnd_data_dir() {
