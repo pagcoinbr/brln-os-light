@@ -2,7 +2,6 @@ package server
 
 import (
   "context"
-  "encoding/json"
   "net/http"
   "net/url"
   "os"
@@ -11,11 +10,6 @@ import (
 
   "github.com/gorilla/websocket"
 )
-
-type gottyInitMessage struct {
-  Arguments string `json:"Arguments"`
-  AuthToken string `json:"AuthToken"`
-}
 
 func (s *Server) handleTerminalWebsocket(w http.ResponseWriter, r *http.Request) {
   if strings.TrimSpace(os.Getenv("TERMINAL_ENABLED")) != "1" {
@@ -52,28 +46,6 @@ func (s *Server) handleTerminalWebsocket(w http.ResponseWriter, r *http.Request)
     return
   }
   defer upstreamConn.Close()
-
-  msgType, msg, err := clientConn.ReadMessage()
-  if err != nil {
-    return
-  }
-
-  if msgType == websocket.TextMessage {
-    var init gottyInitMessage
-    if json.Unmarshal(msg, &init) == nil {
-      credential := terminalCredential()
-      if credential != "" && init.AuthToken != credential {
-        init.AuthToken = credential
-        if patched, err := json.Marshal(init); err == nil {
-          msg = patched
-        }
-      }
-    }
-  }
-
-  if err := upstreamConn.WriteMessage(msgType, msg); err != nil {
-    return
-  }
 
   done := make(chan struct{}, 2)
 
