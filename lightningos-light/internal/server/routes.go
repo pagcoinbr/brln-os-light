@@ -49,6 +49,7 @@ func (s *Server) routes() http.Handler {
   r.Get("/api/notifications/backup/telegram", s.handleTelegramBackupGet)
   r.Post("/api/notifications/backup/telegram", s.handleTelegramBackupPost)
   r.Post("/api/notifications/backup/telegram/test", s.handleTelegramBackupTest)
+  r.Get("/api/terminal/status", s.handleTerminalStatus)
 
   r.Route("/api/wallet", func(r chi.Router) {
     r.Get("/summary", s.handleWalletSummary)
@@ -70,6 +71,9 @@ func (s *Server) routes() http.Handler {
     r.Post("/channel/close", s.handleLNCloseChannel)
     r.Post("/channel/fees", s.handleLNUpdateFees)
   })
+
+  r.HandleFunc("/terminal", s.handleTerminalProxy)
+  r.HandleFunc("/terminal/*", s.handleTerminalProxy)
 
   staticDir := s.cfg.UI.StaticDir
   r.Get("/*", s.handleSPA(staticDir))

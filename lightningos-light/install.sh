@@ -9,6 +9,10 @@ LND_VERSION="${LND_VERSION:-0.20.0-beta}"
 LND_URL_DEFAULT="https://github.com/lightningnetwork/lnd/releases/download/v${LND_VERSION}/lnd-linux-amd64-v${LND_VERSION}.tar.gz"
 LND_URL="${LND_URL:-$LND_URL_DEFAULT}"
 
+GOTTY_VERSION="${GOTTY_VERSION:-1.0.1}"
+GOTTY_URL_DEFAULT="https://github.com/yudai/gotty/releases/download/v${GOTTY_VERSION}/gotty_linux_amd64.tar.gz"
+GOTTY_URL="${GOTTY_URL:-$GOTTY_URL_DEFAULT}"
+
 GO_VERSION="${GO_VERSION:-1.22.7}"
 GO_TARBALL_URL="https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
 
@@ -61,6 +65,26 @@ ensure_secrets_env_defaults() {
   fi
   if ! grep -q '^NOTIFICATIONS_PG_ADMIN_DSN=' "$file"; then
     echo "NOTIFICATIONS_PG_ADMIN_DSN=postgres://losadmin:CHANGE_ME@127.0.0.1:5432/postgres?sslmode=disable" >> "$file"
+  fi
+  if ! grep -q '^TERMINAL_ENABLED=' "$file"; then
+    echo "TERMINAL_ENABLED=0" >> "$file"
+  fi
+  if ! grep -q '^TERMINAL_CREDENTIAL=' "$file"; then
+    echo "TERMINAL_CREDENTIAL=" >> "$file"
+  fi
+  if ! grep -q '^TERMINAL_ALLOW_WRITE=' "$file"; then
+    echo "TERMINAL_ALLOW_WRITE=0" >> "$file"
+  fi
+  if ! grep -q '^TERMINAL_PORT=' "$file"; then
+    echo "TERMINAL_PORT=7681" >> "$file"
+  fi
+  local current_credential
+  current_credential=$(grep '^TERMINAL_CREDENTIAL=' "$file" | cut -d= -f2- || true)
+  if [[ -z "$current_credential" ]]; then
+    local terminal_pass
+    terminal_pass=$(openssl rand -hex 12)
+    sed -i "s|^TERMINAL_CREDENTIAL=.*|TERMINAL_CREDENTIAL=terminal:${terminal_pass}|" "$file"
+    sed -i 's|^TERMINAL_ENABLED=.*|TERMINAL_ENABLED=1|' "$file"
   fi
   chown root:lightningos "$file"
   chmod 660 "$file"
@@ -378,7 +402,7 @@ install_packages() {
     postgresql-client-common \
     postgresql-"${POSTGRES_VERSION}" \
     postgresql-client-"${POSTGRES_VERSION}" \
-    smartmontools curl jq ca-certificates openssl build-essential git sudo tor deb.torproject.org-keyring apt-transport-https
+    smartmontools curl jq ca-certificates openssl build-essential git sudo tor deb.torproject.org-keyring apt-transport-https tmux
   print_ok "Base packages installed"
 }
 
@@ -483,6 +507,22 @@ install_node() {
   curl -fsSL "https://deb.nodesource.com/setup_${NODE_VERSION}.x" | bash -
   apt-get install -y nodejs >/dev/null
   print_ok "Node.js installed"
+}
+
+install_gotty() {
+  print_step "Installing GoTTY ${GOTTY_VERSION}"
+  if command -v gotty >/dev/null 2>&1; then
+    print_ok "GoTTY already installed"
+    return
+  fi
+
+  local tmp
+  tmp=$(mktemp -d)
+  curl -fsSL "$GOTTY_URL" -o "$tmp/gotty.tar.gz"
+  tar -xzf "$tmp/gotty.tar.gz" -C "$tmp"
+  install -m 0755 "$tmp/gotty" /usr/local/bin/gotty
+  rm -rf "$tmp"
+  print_ok "GoTTY installed"
 }
 
 ensure_dirs() {
@@ -939,8 +979,10 @@ install_systemd() {
   print_step "Installing systemd services"
   cp "$REPO_ROOT/templates/systemd/lnd.service" /etc/systemd/system/lnd.service
   cp "$REPO_ROOT/templates/systemd/lightningos-manager.service" /etc/systemd/system/lightningos-manager.service
+  cp "$REPO_ROOT/templates/systemd/lightningos-terminal.service" /etc/systemd/system/lightningos-terminal.service
   strip_crlf /etc/systemd/system/lnd.service
   strip_crlf /etc/systemd/system/lightningos-manager.service
+  strip_crlf /etc/systemd/system/lightningos-terminal.service
   systemctl daemon-reload
   systemctl enable --now postgresql
   start_tor_service
@@ -951,6 +993,15 @@ install_systemd() {
   systemctl enable --now lightningos-manager
   systemctl restart lnd >/dev/null 2>&1 || true
   systemctl restart lightningos-manager >/dev/null 2>&1 || true
+  if [[ -f /etc/lightningos/secrets.env ]]; then
+    # shellcheck disable=SC1091
+    source /etc/lightningos/secrets.env
+  fi
+  if [[ "${TERMINAL_ENABLED:-0}" == "1" && -n "${TERMINAL_CREDENTIAL:-}" ]]; then
+    systemctl enable --now lightningos-terminal >/dev/null 2>&1 || true
+  else
+    systemctl disable --now lightningos-terminal >/dev/null 2>&1 || true
+  fi
   print_ok "Services enabled and started"
 }
 
@@ -1052,6 +1103,7 @@ main() {
   install_i2pd
   install_go
   install_node
+  install_gotty
   ensure_dirs
   install_helper_scripts
   prepare_lnd_data_dir

@@ -12,6 +12,7 @@ import BitcoinLocal from './pages/BitcoinLocal'
 import Notifications from './pages/Notifications'
 import LndConfig from './pages/LndConfig'
 import AppStore from './pages/AppStore'
+import Terminal from './pages/Terminal'
 import { getWizardStatus } from './api'
 
 const routes = [
@@ -25,7 +26,8 @@ const routes = [
   { key: 'logs', label: 'Logs', element: <Logs /> },
   { key: 'apps', label: 'Apps', element: <AppStore /> },
   { key: 'bitcoin-local', label: 'Bitcoin Local', element: <BitcoinLocal /> },
-  { key: 'notifications', label: 'Notifications', element: <Notifications /> }
+  { key: 'notifications', label: 'Notifications', element: <Notifications /> },
+  { key: 'terminal', label: 'Terminal', element: <Terminal /> }
 ]
 
 function useHashRoute() {

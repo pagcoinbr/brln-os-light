@@ -95,6 +95,22 @@ Environment keys:
 - `NOTIFICATIONS_TG_BOT_TOKEN`
 - `NOTIFICATIONS_TG_CHAT_ID`
 
+## Web terminal (optional)
+LightningOS Light can expose a protected web terminal using GoTTY.
+
+The installer auto-enables the terminal and generates a credential when it is missing.
+You can review or override in `/etc/lightningos/secrets.env`:
+- `TERMINAL_ENABLED=1`
+- `TERMINAL_CREDENTIAL=user:pass`
+- `TERMINAL_ALLOW_WRITE=0` (set `1` to allow input)
+- `TERMINAL_PORT=7681` (optional)
+
+Start (or restart) the service:
+```bash
+sudo systemctl enable --now lightningos-terminal
+```
+The Terminal page shows the current credential and a copy button.
+
 ## Security notes
 - The seed phrase is never stored. It is displayed once in the wizard.
 - RPC credentials are stored only in `/etc/lightningos/secrets.env` (root:lightningos, `chmod 660`).
