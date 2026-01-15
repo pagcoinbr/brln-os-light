@@ -1,6 +1,8 @@
 package server
 
 import (
+  "bufio"
+  "net"
   "net/http"
   "time"
 )
@@ -33,4 +35,11 @@ func (w *responseWriter) Flush() {
   if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
     flusher.Flush()
   }
+}
+
+func (w *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+  if hijacker, ok := w.ResponseWriter.(http.Hijacker); ok {
+    return hijacker.Hijack()
+  }
+  return nil, nil, http.ErrNotSupported
 }
