@@ -369,6 +369,11 @@ const mempoolTxLink = (txid?: string) => {
                 const title = `${labelForType(item.type)} ${labelForAction(item.action)}`
                 const statusLabel = normalizeStatus(item.status)
                 const peer = item.peer_alias || (item.peer_pubkey ? item.peer_pubkey.slice(0, 16) : '')
+                const peerLabel = peer
+                  ? item.type === 'rebalance'
+                    ? `Route ${peer}`
+                    : `Peer ${peer}`
+                  : ''
                 const feeRate = formatFeeRate(item.amount_sat, item.fee_sat)
                 let feeDetail = ''
                 if (feeRate) {
@@ -379,7 +384,7 @@ const mempoolTxLink = (txid?: string) => {
                   }
                 }
                 const detailParts: Array<string | JSX.Element> = [
-                  peer ? `Peer ${peer}` : '',
+                  peerLabel,
                 ].filter(Boolean)
                 if (item.channel_point) {
                   if (item.type === 'channel') {
@@ -419,6 +424,9 @@ const mempoolTxLink = (txid?: string) => {
                 }
                 if (feeDetail) {
                   detailParts.push(feeDetail)
+                }
+                if (item.type === 'rebalance' && item.memo) {
+                  detailParts.push(item.memo)
                 }
                 return (
                   <div key={item.id} className="grid items-center gap-3 border-b border-white/10 pb-3 sm:grid-cols-[160px_1fr_auto_auto]">

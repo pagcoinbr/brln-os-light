@@ -29,6 +29,7 @@ const (
   notificationCleanupInterval = 6 * time.Hour
   paymentsPollInterval = 15 * time.Second
   forwardsPollInterval = 30 * time.Second
+  pendingChannelsPollInterval = 30 * time.Second
 )
 
 const (
@@ -56,6 +57,11 @@ type Notification struct {
   Memo string `json:"memo,omitempty"`
 }
 
+type rebalanceRouteInfo struct {
+  PeerLabel string
+  ChannelLabel string
+}
+
 type notificationRowScanner interface {
   Scan(dest ...any) error
 }
@@ -66,10 +72,12 @@ type Notifier struct {
   logger *log.Logger
 
   mu sync.Mutex
+  backupMu sync.Mutex
   subscribers map[chan Notification]struct{}
   started bool
   stop chan struct{}
   lastCleanup time.Time
+  backupSent map[string]time.Time
 }
 
 func NewNotifier(db *pgxpool.Pool, lnd *lndclient.Client, logger *log.Logger) *Notifier {
@@ -78,6 +86,7 @@ func NewNotifier(db *pgxpool.Pool, lnd *lndclient.Client, logger *log.Logger) *N
     lnd: lnd,
     logger: logger,
     subscribers: map[chan Notification]struct{}{},
+    backupSent: map[string]time.Time{},
   }
 }
 
@@ -103,6 +112,7 @@ func (n *Notifier) Start() {
   go n.runPayments()
   go n.runTransactions()
   go n.runChannels()
+  go n.runPendingChannels()
   go n.runForwards()
 }
 
@@ -706,9 +716,13 @@ func (n *Notifier) runPayments() {
         occurredAt = time.Now().UTC()
       }
       isRebalance := false
+      var rebalanceInfo *rebalanceRouteInfo
       if status == "SUCCEEDED" && strings.TrimSpace(pay.PaymentRequest) != "" {
-        ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+        ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
         isRebalance = n.isSelfPayment(ctx, pay.PaymentRequest)
+        if isRebalance {
+          rebalanceInfo = n.rebalanceRouteInfo(ctx, pay)
+        }
         cancel()
       }
       evt := Notification{
@@ -728,6 +742,14 @@ func (n *Notifier) runPayments() {
         evt.Action = "rebalanced"
         evt.Direction = "neutral"
         evt.Status = "SETTLED"
+        if rebalanceInfo != nil {
+          if rebalanceInfo.PeerLabel != "" {
+            evt.PeerAlias = rebalanceInfo.PeerLabel
+          }
+          if rebalanceInfo.ChannelLabel != "" {
+            evt.Memo = rebalanceInfo.ChannelLabel
+          }
+        }
       }
       if _, err := n.upsertNotification(ctx, fmt.Sprintf("payment:%s", paymentHash), evt); err == nil {
         if isRebalance {
@@ -857,6 +879,42 @@ func (n *Notifier) runChannels() {
     }
 
     time.Sleep(2 * time.Second)
+  }
+}
+
+func (n *Notifier) runPendingChannels() {
+  for {
+    select {
+    case <-n.stop:
+      return
+    case <-time.After(pendingChannelsPollInterval):
+    }
+
+    ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+    pending, err := n.lnd.ListPendingChannels(ctx)
+    cancel()
+    if err != nil {
+      n.logger.Printf("notifications: pending channels poll failed: %v", err)
+      continue
+    }
+
+    for _, item := range pending {
+      reason := ""
+      switch item.Status {
+      case "opening":
+        reason = "opening"
+      case "closing", "force_closing", "waiting_close":
+        reason = "closing"
+      default:
+        continue
+      }
+
+      channelPoint := strings.TrimSpace(item.ChannelPoint)
+      if channelPoint == "" && strings.TrimSpace(item.ClosingTxid) != "" {
+        channelPoint = strings.TrimSpace(item.ClosingTxid)
+      }
+      n.triggerTelegramBackup(reason, channelPoint)
+    }
   }
 }
 
@@ -1113,6 +1171,147 @@ func nullableString(value string) any {
 
 func normalizeHash(value string) string {
   return strings.ToLower(strings.TrimSpace(value))
+}
+
+func (n *Notifier) rebalanceRouteInfo(ctx context.Context, pay *lnrpc.Payment) *rebalanceRouteInfo {
+  if pay == nil {
+    return nil
+  }
+  route := rebalanceRouteFromPayment(pay)
+  if route == nil {
+    return nil
+  }
+  hops := route.GetHops()
+  if len(hops) == 0 {
+    return nil
+  }
+
+  channelMap := n.channelMap(ctx)
+  outHop := hops[0]
+  inHop := hops[len(hops)-1]
+  outInfo, outOK := channelMap[outHop.ChanId]
+  inInfo, inOK := channelMap[inHop.ChanId]
+
+  outAlias := pickAlias(outInfo.PeerAlias, outInfo.RemotePubkey, outHop.PubKey)
+  inAlias := pickAlias(inInfo.PeerAlias, inInfo.RemotePubkey, inHop.PubKey)
+  outPoint := ""
+  inPoint := ""
+  if outOK {
+    outPoint = outInfo.ChannelPoint
+  }
+  if inOK {
+    inPoint = inInfo.ChannelPoint
+  }
+
+  peerLabel := formatRebalanceLabel("Out", outAlias, "In", inAlias)
+  channelLabel := formatRebalanceLabel("Channels", shortChannelPoint(outPoint), "", shortChannelPoint(inPoint))
+
+  if peerLabel == "" && channelLabel == "" {
+    return nil
+  }
+
+  return &rebalanceRouteInfo{
+    PeerLabel: peerLabel,
+    ChannelLabel: channelLabel,
+  }
+}
+
+func rebalanceRouteFromPayment(pay *lnrpc.Payment) *lnrpc.Route {
+  if pay == nil {
+    return nil
+  }
+  for _, attempt := range pay.Htlcs {
+    if attempt == nil || attempt.Route == nil {
+      continue
+    }
+    if attempt.Status == lnrpc.HTLCAttempt_SUCCEEDED {
+      return attempt.Route
+    }
+  }
+  for _, attempt := range pay.Htlcs {
+    if attempt != nil && attempt.Route != nil {
+      return attempt.Route
+    }
+  }
+  return nil
+}
+
+func (n *Notifier) channelMap(ctx context.Context) map[uint64]lndclient.ChannelInfo {
+  channels, err := n.lnd.ListChannels(ctx)
+  if err != nil {
+    return map[uint64]lndclient.ChannelInfo{}
+  }
+  mapped := make(map[uint64]lndclient.ChannelInfo, len(channels))
+  for _, ch := range channels {
+    mapped[ch.ChannelID] = ch
+  }
+  return mapped
+}
+
+func pickAlias(alias string, pubkey string, hopPubkey string) string {
+  trimmed := strings.TrimSpace(alias)
+  if trimmed != "" {
+    return trimmed
+  }
+  if pubkey == "" {
+    pubkey = hopPubkey
+  }
+  return shortPubKey(pubkey)
+}
+
+func shortPubKey(value string) string {
+  trimmed := strings.TrimSpace(value)
+  if trimmed == "" {
+    return ""
+  }
+  if len(trimmed) <= 12 {
+    return trimmed
+  }
+  return trimmed[:12]
+}
+
+func shortChannelPoint(channelPoint string) string {
+  trimmed := strings.TrimSpace(channelPoint)
+  if trimmed == "" {
+    return ""
+  }
+  parts := strings.SplitN(trimmed, ":", 2)
+  if len(parts) != 2 {
+    return ""
+  }
+  txid := parts[0]
+  index := parts[1]
+  if len(txid) > 8 {
+    txid = txid[:8]
+  }
+  return fmt.Sprintf("%s...:%s", txid, index)
+}
+
+func formatRebalanceLabel(leftLabel string, leftValue string, rightLabel string, rightValue string) string {
+  leftValue = strings.TrimSpace(leftValue)
+  rightValue = strings.TrimSpace(rightValue)
+  if leftValue == "" && rightValue == "" {
+    return ""
+  }
+  if leftLabel != "" {
+    if leftValue == "" {
+      leftValue = "?"
+    }
+    leftValue = leftLabel + " " + leftValue
+  }
+  if rightLabel != "" {
+    if rightValue == "" {
+      rightValue = "?"
+    }
+    rightValue = rightLabel + " " + rightValue
+  }
+  if rightValue == "" {
+    return leftValue
+  }
+  if leftValue == "" {
+    return rightValue
+  }
+  return leftValue + " -> " + rightValue
 }
 
 func (n *Notifier) removeRebalanceInvoice(ctx context.Context, paymentHash string) error {

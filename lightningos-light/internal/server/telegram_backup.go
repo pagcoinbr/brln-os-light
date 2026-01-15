@@ -167,10 +167,25 @@ func (n *Notifier) maybeSendTelegramBackup(update *lnrpc.ChannelEventUpdate) {
     if ch := update.GetClosedChannel(); ch != nil {
       channelPoint = ch.ChannelPoint
     }
+  case lnrpc.ChannelEventUpdate_PENDING_OPEN_CHANNEL:
+    reason = "opening"
+    if ch := update.GetPendingOpenChannel(); ch != nil {
+      txid := txidFromBytes(ch.Txid)
+      if txid != "" {
+        channelPoint = fmt.Sprintf("%s:%d", txid, ch.OutputIndex)
+      }
+    }
   default:
     return
   }
 
+  n.triggerTelegramBackup(reason, channelPoint)
+}
+
+func (n *Notifier) triggerTelegramBackup(reason, channelPoint string) {
+  if !n.shouldSendTelegramBackup(reason, channelPoint) {
+    return
+  }
   cfg := readTelegramBackupConfig()
   if !cfg.configured() {
     return
@@ -183,6 +198,23 @@ func (n *Notifier) maybeSendTelegramBackup(update *lnrpc.ChannelEventUpdate) {
       n.logger.Printf("notifications: telegram backup failed: %v", err)
     }
   }()
+}
+
+func (n *Notifier) shouldSendTelegramBackup(reason, channelPoint string) bool {
+  if n == nil {
+    return false
+  }
+  if strings.TrimSpace(channelPoint) == "" {
+    return true
+  }
+  key := strings.TrimSpace(reason) + ":" + strings.TrimSpace(channelPoint)
+  n.backupMu.Lock()
+  defer n.backupMu.Unlock()
+  if _, ok := n.backupSent[key]; ok {
+    return false
+  }
+  n.backupSent[key] = time.Now().UTC()
+  return true
 }
 
 func (n *Notifier) sendTelegramBackup(ctx context.Context, cfg telegramBackupConfig, reason, channelPoint string) error {
