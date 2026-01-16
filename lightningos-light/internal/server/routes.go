@@ -73,7 +73,7 @@ func (s *Server) routes() http.Handler {
   })
 
   r.HandleFunc("/terminal", s.handleTerminalProxy)
-  r.HandleFunc("/terminal/ws", s.handleTerminalWebsocket)
+  r.HandleFunc("/terminal/ws", s.handleTerminalProxy)
   r.HandleFunc("/terminal/*", s.handleTerminalProxy)
 
   staticDir := s.cfg.UI.StaticDir
