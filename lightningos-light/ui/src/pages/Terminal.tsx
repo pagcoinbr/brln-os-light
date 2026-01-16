@@ -23,17 +23,6 @@ export default function Terminal() {
     }
   }
 
-  const parseCredential = (raw?: string) => {
-    if (!raw) return { user: '', pass: '' }
-    const parts = raw.split(':')
-    if (parts.length < 2) return { user: raw, pass: '' }
-    const user = parts.shift() || ''
-    const pass = parts.join(':')
-    return { user, pass }
-  }
-
-  const credential = parseCredential(status?.credential)
-
   useEffect(() => {
     let mounted = true
     getTerminalStatus()
@@ -73,25 +62,6 @@ export default function Terminal() {
                     Terminal disabled. Set `TERMINAL_ENABLED=1` in `/etc/lightningos/secrets.env`.
                   </p>
                 )}
-                {credential.pass && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-fog/50">Credential</span>
-                    <span className="font-mono text-fog/80">{credential.user || 'terminal'}</span>
-                    <span className="text-fog/40">/</span>
-                    <span className="font-mono text-fog/80">{credential.pass}</span>
-                    <button
-                      className="text-fog/50 hover:text-fog"
-                      onClick={() => copyToClipboard(credential.pass)}
-                      title="Copy password"
-                      aria-label="Copy password"
-                    >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6">
-                        <rect x="9" y="9" width="11" height="11" rx="2" />
-                        <rect x="4" y="4" width="11" height="11" rx="2" />
-                      </svg>
-                    </button>
-                  </div>
-                )}
                 {status?.operator_password && (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-fog/50">Operator</span>
@@ -111,6 +81,9 @@ export default function Terminal() {
                     </button>
                   </div>
                 )}
+                <p className="text-xs text-fog/50">
+                  Paste with Ctrl+Shift+V (or right-click). Copy with Ctrl+Shift+C.
+                </p>
               </div>
             )}
           </div>

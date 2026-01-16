@@ -97,13 +97,19 @@ ensure_secrets_env_defaults() {
   if ! grep -q '^TERMINAL_WS_ORIGIN=' "$file"; then
     echo "TERMINAL_WS_ORIGIN=" >> "$file"
   fi
-  local current_credential
+  local current_credential operator_pass
   current_credential=$(grep '^TERMINAL_CREDENTIAL=' "$file" | cut -d= -f2- || true)
-  if [[ -z "$current_credential" ]]; then
-    local terminal_pass
-    terminal_pass=$(openssl rand -hex 12)
-    sed -i "s|^TERMINAL_CREDENTIAL=.*|TERMINAL_CREDENTIAL=${TERMINAL_OPERATOR_USER}:${terminal_pass}|" "$file"
-    sed -i 's|^TERMINAL_ENABLED=.*|TERMINAL_ENABLED=1|' "$file"
+  operator_pass=$(grep '^TERMINAL_OPERATOR_PASSWORD=' "$file" | cut -d= -f2- || true)
+  if [[ -z "$current_credential" || "$current_credential" == terminal:* ]]; then
+    if [[ -n "$operator_pass" ]]; then
+      sed -i "s|^TERMINAL_CREDENTIAL=.*|TERMINAL_CREDENTIAL=${TERMINAL_OPERATOR_USER}:${operator_pass}|" "$file"
+      sed -i 's|^TERMINAL_ENABLED=.*|TERMINAL_ENABLED=1|' "$file"
+    else
+      local terminal_pass
+      terminal_pass=$(openssl rand -hex 12)
+      sed -i "s|^TERMINAL_CREDENTIAL=.*|TERMINAL_CREDENTIAL=${TERMINAL_OPERATOR_USER}:${terminal_pass}|" "$file"
+      sed -i 's|^TERMINAL_ENABLED=.*|TERMINAL_ENABLED=1|' "$file"
+    fi
   fi
   chown root:lightningos "$file"
   chmod 660 "$file"
@@ -982,24 +988,6 @@ install_manager() {
   local stamp_file="/opt/lightningos/manager/.build_stamp"
   local current_stamp
   current_stamp=$(manager_build_stamp)
-  if [[ -x /opt/lightningos/manager/lightningos-manager && -f "$stamp_file" ]]; then
-    local existing_stamp
-    existing_stamp=$(cat "$stamp_file" 2>/dev/null || true)
-    if [[ -n "$current_stamp" && "$existing_stamp" == "$current_stamp" ]]; then
-      print_ok "Manager already installed (up-to-date)"
-      return
-    fi
-  fi
-
-  if [[ -x "$REPO_ROOT/dist/lightningos-manager" ]]; then
-    install -m 0755 "$REPO_ROOT/dist/lightningos-manager" /opt/lightningos/manager/lightningos-manager
-    if [[ -n "$current_stamp" ]]; then
-      echo "$current_stamp" > "$stamp_file"
-      chmod 0644 "$stamp_file"
-    fi
-    print_ok "Manager installed from dist/"
-    return
-  fi
 
   local go_env
   go_env="GOPATH=/opt/lightningos/go GOCACHE=/opt/lightningos/go-cache GOMODCACHE=/opt/lightningos/go/pkg/mod"
@@ -1022,18 +1010,8 @@ install_ui() {
   print_step "Installing UI"
   local stamp_file="/opt/lightningos/ui/.build_stamp"
   local current_stamp
-  local need_build="true"
   current_stamp=$(ui_build_stamp)
-  if [[ -d "$REPO_ROOT/ui/dist" && -f "$stamp_file" ]]; then
-    local existing_stamp
-    existing_stamp=$(cat "$stamp_file" 2>/dev/null || true)
-    if [[ -n "$current_stamp" && "$existing_stamp" == "$current_stamp" ]]; then
-      need_build="false"
-    fi
-  fi
-  if [[ "$need_build" == "true" ]]; then
-    build_ui
-  fi
+  build_ui
   rm -rf /opt/lightningos/ui/*
   cp -a "$REPO_ROOT/ui/dist/." /opt/lightningos/ui/
   if [[ -n "$current_stamp" ]]; then
