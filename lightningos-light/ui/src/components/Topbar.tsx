@@ -7,7 +7,12 @@ const statusColors: Record<string, string> = {
   ERR: 'bg-ember/20 text-ember border-ember/40'
 }
 
-export default function Topbar() {
+type TopbarProps = {
+  onMenuToggle?: () => void
+  menuOpen?: boolean
+}
+
+export default function Topbar({ onMenuToggle, menuOpen }: TopbarProps) {
   const [status, setStatus] = useState('...')
   const [issues, setIssues] = useState<Array<{ component?: string; level?: string; message?: string }>>([])
 
@@ -36,6 +41,33 @@ export default function Topbar() {
 
   return (
     <header className="px-6 lg:px-12 pt-8">
+      {onMenuToggle && (
+        <div className="mb-6 flex items-center justify-between lg:hidden">
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-ink/60 px-3 py-2 text-xs uppercase tracking-wide text-fog/70 hover:text-white hover:border-white/40 transition"
+            onClick={onMenuToggle}
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen ? true : false}
+            aria-controls="app-sidebar"
+          >
+            {menuOpen ? (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M6 6l12 12M18 6l-12 12" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M4 7h16M4 12h16M4 17h10" />
+              </svg>
+            )}
+            <span>{menuOpen ? 'Close' : 'Menu'}</span>
+          </button>
+          <div className="text-right text-xs text-fog/60">
+            <p className="text-fog font-semibold">LightningOS Light</p>
+            <p>Mainnet only</p>
+          </div>
+        </div>
+      )}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <p className="text-sm uppercase tracking-[0.3em] text-fog/50">Status overview</p>
@@ -45,21 +77,21 @@ export default function Topbar() {
           <div className={`px-4 py-2 rounded-full border text-sm ${statusColors[status] || 'bg-white/10 border-white/20'}`}>
             {status}
           </div>
-        <div className="text-xs text-fog/60 max-w-xs">
-          {issues.length
-            ? issues
-              .map((issue) => {
-                const label = issue.component ? issue.component.toUpperCase() : 'SYSTEM'
-                const message = issue.message || 'Issue detected'
-                return `${label}: ${message}`
-              })
-              .join(' • ')
-            : status === '...'
-              ? 'Checking system status...'
-              : status === 'OK'
-                ? 'All systems green'
-                : 'Status unavailable'}
-        </div>
+          <div className="text-xs text-fog/60 max-w-xs">
+            {issues.length
+              ? issues
+                .map((issue) => {
+                  const label = issue.component ? issue.component.toUpperCase() : 'SYSTEM'
+                  const message = issue.message || 'Issue detected'
+                  return `${label}: ${message}`
+                })
+                .join(' • ')
+              : status === '...'
+                ? 'Checking system status...'
+                : status === 'OK'
+                  ? 'All systems green'
+                  : 'Status unavailable'}
+          </div>
         </div>
       </div>
       <div className="glow-divider mt-6" />

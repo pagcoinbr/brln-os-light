@@ -45,6 +45,7 @@ function useHashRoute() {
 export default function App() {
   const route = useHashRoute()
   const [wizardRequired, setWizardRequired] = useState(true)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -62,6 +63,27 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    setMenuOpen(false)
+  }, [route])
+
+  useEffect(() => {
+    document.body.style.overflow = menuOpen ? 'hidden' : ''
+    if (!menuOpen) {
+      return
+    }
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => {
+      window.removeEventListener('keydown', handleKey)
+      document.body.style.overflow = ''
+    }
+  }, [menuOpen])
+
   const current = useMemo(() => {
     const matched = routes.find((item) => item.key === route)
     if (wizardRequired) {
@@ -74,14 +96,23 @@ export default function App() {
   }, [route, wizardRequired])
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row text-fog">
-      <Sidebar routes={routes} current={current.key} />
-      <div className="flex-1 flex flex-col">
-        <Topbar />
-        <main className="px-6 pb-16 pt-6 lg:px-12">
-          {current.element}
-        </main>
+    <>
+      <div
+        className={`fixed inset-0 z-30 bg-black/60 backdrop-blur-sm transition-opacity lg:hidden ${
+          menuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={() => setMenuOpen(false)}
+        aria-hidden="true"
+      />
+      <div className="min-h-screen flex flex-col lg:flex-row text-fog">
+        <Sidebar routes={routes} current={current.key} open={menuOpen} onClose={() => setMenuOpen(false)} />
+        <div className="flex-1 flex flex-col">
+          <Topbar onMenuToggle={() => setMenuOpen((prev) => !prev)} menuOpen={menuOpen} />
+          <main className="px-6 pb-16 pt-6 lg:px-12">
+            {current.element}
+          </main>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
