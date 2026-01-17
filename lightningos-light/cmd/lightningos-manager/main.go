@@ -17,9 +17,15 @@ import (
 )
 
 func main() {
-  if len(os.Args) > 1 && os.Args[1] == "reports-run" {
-    runReports(os.Args[2:])
-    return
+  if len(os.Args) > 1 {
+    switch os.Args[1] {
+    case "reports-run":
+      runReports(os.Args[2:])
+      return
+    case "reports-backfill":
+      runReportsBackfill(os.Args[2:])
+      return
+    }
   }
 
   runServer(os.Args[1:])
@@ -96,4 +102,71 @@ func runReports(args []string) {
     row.Metrics.RebalanceFeeCostSat,
     row.Metrics.NetRoutingProfitSat,
   )
+}
+
+func runReportsBackfill(args []string) {
+  fs := flag.NewFlagSet("reports-backfill", flag.ExitOnError)
+  configPath := fs.String("config", "/etc/lightningos/config.yaml", "Path to config.yaml")
+  fromStr := fs.String("from", "", "Start date (YYYY-MM-DD)")
+  toStr := fs.String("to", "", "End date (YYYY-MM-DD)")
+  _ = fs.Parse(args)
+
+  if strings.TrimSpace(*fromStr) == "" || strings.TrimSpace(*toStr) == "" {
+    log.Fatalf("reports-backfill failed: --from and --to are required")
+  }
+
+  cfg, err := config.Load(*configPath)
+  if err != nil {
+    log.Fatalf("config load failed: %v", err)
+  }
+
+  logger := log.New(os.Stdout, "", log.LstdFlags)
+  dsn, err := server.ResolveNotificationsDSN(logger)
+  if err != nil {
+    logger.Fatalf("reports-backfill failed: %v", err)
+  }
+
+  pool, err := pgxpool.New(context.Background(), dsn)
+  if err != nil {
+    logger.Fatalf("reports-backfill failed: %v", err)
+  }
+  defer pool.Close()
+
+  svc := reports.NewService(pool, lndclient.New(cfg, logger), logger)
+  schemaCtx, schemaCancel := context.WithTimeout(context.Background(), 30*time.Second)
+  if err := svc.EnsureSchema(schemaCtx); err != nil {
+    schemaCancel()
+    logger.Fatalf("reports-backfill failed: %v", err)
+  }
+  schemaCancel()
+
+  loc := time.Local
+  startDate, err := reports.ParseDate(*fromStr, loc)
+  if err != nil {
+    logger.Fatalf("reports-backfill failed: invalid --from date")
+  }
+  endDate, err := reports.ParseDate(*toStr, loc)
+  if err != nil {
+    logger.Fatalf("reports-backfill failed: invalid --to date")
+  }
+  if err := reports.ValidateCustomRange(startDate, endDate); err != nil {
+    logger.Fatalf("reports-backfill failed: %v", err)
+  }
+
+  logger.Printf("reports: backfill %s -> %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
+  for day := startDate; !day.After(endDate); day = day.AddDate(0, 0, 1) {
+    dayCtx, dayCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+    row, err := svc.RunDaily(dayCtx, day, loc)
+    dayCancel()
+    if err != nil {
+      logger.Fatalf("reports-backfill failed on %s: %v", day.Format("2006-01-02"), err)
+    }
+    logger.Printf(
+      "reports: stored %s (revenue %d sats, cost %d sats, net %d sats)",
+      row.ReportDate.Format("2006-01-02"),
+      row.Metrics.ForwardFeeRevenueSat,
+      row.Metrics.RebalanceFeeCostSat,
+      row.Metrics.NetRoutingProfitSat,
+    )
+  }
 }
