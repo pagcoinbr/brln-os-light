@@ -1,6 +1,4 @@
-# FILE: docs/07_LND_CONF_TEMPLATE.md
-
-# lnd.conf Template (mainnet + remote bitcoind)
+# lnd.conf Template
 
 # Core
 [Application Options]
@@ -38,10 +36,9 @@ num-restricted-slots=100
 
 # Clearnet (optional)
 # listen=0.0.0.0:9735
-# externalip=ip_externo:porta
-# externalhosts=nome_dominio:porta
+# externalip=ip_external:port
+# externalhosts=domain:port
 
-# Bitcoin (mainnet only)
 [Bitcoin]
 bitcoin.mainnet=1
 bitcoin.node=bitcoind
@@ -56,9 +53,9 @@ wtclient.sweep-fee-rate=10
 [routing]
 routing.strictgraphpruning=true
 
-# DB backend: postgres
 [db]
 db.backend=postgres
+db.use-native-sql=true
 
 [postgres]
 db.postgres.dsn=postgres://lndpg:CHANGE_ME@127.0.0.1:5432/lnd?sslmode=disable
@@ -111,3 +108,10 @@ tor.active=true
 tor.v3=true
 tor.skip-proxy-for-clearnet-targets=false
 tor.streamisolation=true
+
+## Notes
+- When you toggle Bitcoin source in the UI, the manager adds a labeled block inside [Bitcoind]:
+  # LightningOS Bitcoin Remote
+  # LightningOS Bitcoin Local
+- The active source is uncommented and the other is commented.
+- LNDg may add extra rpclisten and tlsextraip entries for Docker access.

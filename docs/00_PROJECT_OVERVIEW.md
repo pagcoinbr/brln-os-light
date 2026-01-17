@@ -1,45 +1,39 @@
-# FILE: docs/00_PROJECT_OVERVIEW.md
+# LightningOS Light - Project Overview
 
-# LightningOS Light — Visão Geral do Projeto
+## Goal
+LightningOS Light is a guided control center for running an LND node with a clean web UI, optional apps, and safe defaults.
 
-## Objetivo
-Criar um instalador + dashboard + wallet web + app store minimalista para rodar LND (sem Docker no core), reduzindo a barreira de entrada para usuários comuns. O sistema inicia usando Bitcoin remoto comunitário (BRLN) e, futuramente, permitirá instalação e migração para Bitcoin local.
+## Current scope (v0.2)
+- Native LND install (systemd, no Docker in the core)
+- Go manager API plus React UI
+- Wizard for Bitcoin remote credentials, wallet create or import, and unlock
+- Dashboard status for system, disks, Postgres, Bitcoin, and LND
+- Wallet UI (balances, invoice, pay, decode, send)
+- Lightning Ops (channels, peers, fees, open or close)
+- Reports (daily table plus live results)
+- Notifications (history plus optional Telegram backup)
+- App Store (Docker based optional apps)
+- Terminal (GoTTY) optional
 
-## Público-alvo
-- Usuário não técnico que quer operar um node Lightning de forma guiada
-- Usuário técnico iniciante que quer evoluir para CLI aos poucos
+## Principles
+- LAN or VPN access only by default
+- Minimal privileges and explicit secrets
+- Idempotent automation (installer and reports job)
+- Mobile friendly UI
 
-## Princípios
-- Sem Docker no core: serviços via systemd, arquivos de configuração claros.
-- UI bonita, engajadora, “produto”.
-- LAN/VPN only: nada exposto à internet por padrão.
-- Segurança por padrão: credenciais protegidas, mínimos privilégios.
-- Transparência e reversibilidade: logs e “undo” bem definidos.
+## Access defaults
+- UI and API: https://127.0.0.1:8443
+- LND gRPC: 127.0.0.1:10009
+- LND data: /data/lnd (symlinked from /home/lnd/.lnd)
 
-## Escopo do MVP (v0.1)
-- Ubuntu Server
-- LND instalado por binário
-- Backend DB do LND em PostgreSQL
-- LightningOS Manager (Go) servindo API + UI
-- UI web (SPA) elegante, com dashboard e wizard
-- Bitcoin remoto padrão:
-  - bitcoind.rpchost=bitcoin.br-ln.com:8085
-  - bitcoind.zmqpubrawblock=tcp://bitcoin.br-ln.com:28332
-  - bitcoind.zmqpubrawtx=tcp://bitcoin.br-ln.com:28333
-  - usuário/senha informados pelo membro
-- Wizard do LND:
-  - Criar nova wallet (mostrar 24 palavras — não armazenar)
-  - Importar wallet (usuário digita seed)
-  - Unlock da wallet
-- Dashboard com sinais vitais: Linux, Postgres, Bitcoin remoto, LND
-- Card de “vida útil do disco” baseado em SMART/NVMe wear
+## Out of scope
+- Public WAN exposure
+- Multi-user auth system
+- Fleet management
 
-## Fora do escopo do MVP
-- Instalação de Bitcoin local e migração (apenas “placeholder” de UI)
-- App store completa (apenas base/estrutura e 1 app exemplo opcional)
-- Exposição WAN, reverse proxy, login via OAuth etc.
-
-## Porta e Acesso
-- UI e API em https://127.0.0.1:8443 (default)
-- Pode permitir bind em IP da LAN via config (opcional), mas SEM WAN.
-
+## Repository layout
+- cmd/lightningos-manager: manager CLI
+- internal/: server, LND client, reports, notifications, app store
+- ui/: React SPA
+- templates/: systemd and config templates
+- docs/: product and operational documentation

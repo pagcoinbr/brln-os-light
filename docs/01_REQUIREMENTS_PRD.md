@@ -1,90 +1,89 @@
-# FILE: docs/01_REQUIREMENTS_PRD.md
+# LightningOS Light - PRD (v0.2)
 
-# PRD — LightningOS Light (v0.1)
+## Personas
+- P1 Beginner: wants a guided setup without running Bitcoin Core locally.
+- P2 Intermediate: wants a clean UI plus access to logs and ops tools.
+- P3 Power user: wants reporting, automation, and optional apps.
 
-## 1. Personas
-### P1 — Iniciante
-Quer “rodar Lightning” sem instalar Bitcoin local. Precisa de UI guiada e clara.
+## Goals
+- Make first run safe and guided.
+- Provide daily operational visibility for LND and Bitcoin.
+- Keep the core system native and stable (systemd, no Docker).
 
-### P2 — Intermediário
-Quer UI bonita mas também quer acessar logs e aprender com o sistema.
+## Functional requirements
 
-## 2. User Stories (MVP)
-1) Como usuário, quero abrir uma interface web e ver se “está tudo ok”.
-2) Como usuário, quero conectar meu LND a um Bitcoin remoto comunitário informando RPC user/senha.
-3) Como usuário, quero criar uma wallet nova e ver minhas 24 palavras para anotar (e o sistema não pode guardar isso).
-4) Como usuário, quero importar uma wallet existente digitando minhas 24 palavras.
-5) Como usuário, quero desbloquear (unlock) minha wallet ao iniciar.
-6) Como usuário, quero gerar invoice e pagar invoice numa wallet web simples.
-7) Como usuário, quero ver sinais vitais do sistema (CPU/RAM/DISK/uptime).
-8) Como usuário, quero ver a saúde do Postgres e do LND.
-9) Como usuário, quero ver vida útil do disco (wear/SMART), com alertas.
+### Wizard
+- Step 1: connect to Bitcoin remote
+  - Collect RPC user and password.
+  - Validate RPC and ZMQ connectivity.
+  - Store secrets in /etc/lightningos/secrets.env.
+- Step 2: LND wallet
+  - Create wallet (show 24 words once, never store the seed).
+  - Import wallet (user inputs 24 words, do not persist).
+- Step 3: unlock wallet
+  - Unlock using wallet password.
 
-## 3. Requisitos Funcionais
 ### Dashboard
-- Exibir status geral (OK/WARN/ERR) com lista de problemas detectados.
-- Cards:
-  - Sistema (CPU, RAM, disco, uptime)
-  - Discos (wear/SMART + estimativa heurística)
-  - PostgreSQL (status, conexões, DB size)
-  - Bitcoin (modo remoto BRLN, RPC OK/Fail, ZMQ OK/Fail)
-  - LND (locked/unlocked, synced_to_chain, synced_to_graph, blockheight, canais ativos/inativos, saldos)
+- Global health (OK, WARN, ERR) with clear issues.
+- Cards for system, disks, Postgres, Bitcoin, LND.
+- Quick actions: restart LND and manager.
 
-### Wizard (primeiro acesso)
-- Passo 1: “Conectar ao Bitcoin remoto”
-  - Solicitar rpcuser e rpcpass
-  - Testar RPC e ZMQ
-  - Salvar com segurança (arquivo root:lightningos 660 ou secrets store local)
-- Passo 2: “Wallet do LND”
-  - Escolha: Criar nova wallet / Importar wallet
-  - Criar: gerar seed, mostrar 24 palavras UMA VEZ, exigir confirmação do usuário (“eu anotei”)
-  - Importar: campo para digitar 24 palavras (com validação básica)
-- Passo 3: Unlock wallet
-- Passo 4: Finalizar e ir ao Dashboard
+### Wallet
+- Balances (on-chain and lightning).
+- Create invoice and pay invoice.
+- Decode invoice.
+- Send on-chain.
+- Basic recent activity.
 
-### Wallet Web (MVP)
-- Ver saldo on-chain e saldo lightning
-- Gerar invoice
-- Pagar invoice (colando invoice)
-- Histórico básico (opcional; se não, mostrar “últimos 20 pagamentos/recebimentos” se fácil)
+### Lightning Ops
+- List channels and peers.
+- Open and close channels.
+- Update channel fees (base, ppm, timelock, inbound).
+- Boost peers by mempool connectivity ranking.
 
-### Operações
-- Botões (somente LAN/VPN):
-  - Restart LND
-  - Restart LightningOS Manager
-- Visualizar logs recentes:
-  - LND logs (tail)
-  - Manager logs (tail)
+### Reports
+- Daily job at 00:00 local time computes D-1 metrics and stores in Postgres.
+- Idempotent UPSERT by report_date.
+- Stored metrics include revenue, rebalance cost, net, counts, and balances.
+- Live results endpoint computes metrics from 00:00 to now on demand.
+- Date ranges supported: D-1, month, 3m, 6m, 12m, all.
+- Precision must use msats to preserve decimals.
 
-## 4. Requisitos Não-Funcionais
-- Sem Docker no core.
-- Services via systemd.
-- Princípio de menor privilégio (usuários `lnd` e `lightningos`).
-- UI e API em HTTPS local (self-signed) ou HTTP local com recomendação de VPN. (Preferência: HTTPS self-signed).
-- Não armazenar seed phrase.
-- Não mostrar credenciais depois de salvas.
-- Resiliente a reboot (auto-start).
-- Observabilidade: logs estruturados no manager.
+### Notifications
+- Store and list events in Postgres.
+- Optional Telegram backup config and test.
+- SSE stream endpoint for live updates.
 
-## 5. Critérios de Aceite (MVP)
-- Instalação termina com serviços UP e UI acessível em `https://localhost:8443`.
-- Usuário consegue:
-  - inserir rpcuser/rpcpass e validar conectividade
-  - criar OU importar wallet
-  - unlock wallet
-  - gerar invoice e pagar invoice
-- Dashboard mostra status coerente.
-- Discos mostram wear/SMART e alertas.
-- Nenhuma porta WAN aberta por padrão.
+### LND Config
+- Basic settings in UI: alias, color, min and max channel size.
+- Advanced raw editor with rollback on failure.
+- Toggle Bitcoin source between local and remote.
 
-# FILE: docs/01_REQUIREMENTS_PRD.md  (APPEND)
+### Bitcoin Local
+- Manage a local Bitcoin Core node via Docker (optional app).
+- Show sync status, chain info, prune config, and block cadence card.
 
-## Configurações do LND (MVP)
-- Deve existir uma tela "LND -> Configurações" para alterar:
-  - Node alias
-  - tamanho mínimo de canal
-  - tamanho máximo de canal
-- A UI deve editar o arquivo /data/lnd/lnd.conf apenas nas chaves suportadas.
-- O sistema deve persistir as alterações no arquivo /data/lnd/lnd.conf.
-- Ao salvar, o sistema deve validar os valores e reiniciar o LND (apply_now=true por padrão).
-- Deve existir modo avançado opcional para editar o lnd.conf com rollback em caso de falha.
+### App Store
+- List available apps.
+- Install, start, stop, uninstall.
+- Optional admin password helpers for specific apps.
+
+### Terminal
+- Optional GoTTY terminal proxy with credentials.
+
+### Logs
+- Tail logs for LND, manager, and Postgres.
+
+## Non-functional requirements
+- No seed phrase persistence.
+- LAN or VPN access only by default.
+- Idempotent operations for installer and reports job.
+- Clear errors when LND or Bitcoin RPC is unavailable.
+- Mobile friendly UI.
+
+## Acceptance criteria
+- Installer finishes with UI reachable and systemd services active.
+- Wizard completes and LND can unlock successfully.
+- Reports daily job writes reports_daily and live endpoint works.
+- App Store can install and run LNDg and Bitcoin Core.
+- Notifications and logs endpoints return data without breaking other features.

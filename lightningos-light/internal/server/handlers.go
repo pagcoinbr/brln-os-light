@@ -425,9 +425,17 @@ func (s *Server) handleBitcoinSourcePost(w http.ResponseWriter, r *http.Request)
     }
   }
 
-  ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+  ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
   defer cancel()
   if err := system.SystemctlRestart(ctx, "lnd"); err != nil {
+    if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+      s.markLNDRestart()
+      writeJSON(w, http.StatusOK, map[string]any{
+        "ok": true,
+        "warning": "LND restart is taking longer than expected. Check status in a moment.",
+      })
+      return
+    }
     writeError(w, http.StatusInternalServerError, "lnd restart failed")
     return
   }

@@ -1,30 +1,35 @@
-# FILE: docs/12_DEFINITION_OF_DONE.md
+# Definition of Done (v0.2)
 
-# Definition of Done (v0.1)
-
-## Instalação
-- Rodar instalador em Ubuntu Server limpo
-- Serviços:
-  - postgresql active
-  - lnd active (mesmo que locked)
-  - lightningos-manager active
-- UI disponível em https://localhost:8443
+## Installation
+- Installer completes on a clean Ubuntu Server.
+- Services active:
+  - postgresql
+  - lnd (even if wallet is locked)
+  - lightningos-manager
+  - lightningos-reports.timer
+- UI reachable on https://localhost:8443
 
 ## Wizard
-- Conecta ao Bitcoin remoto BRLN com rpcuser/rpcpass
-- Cria OU importa wallet
-- Exibe seed apenas uma vez e não persiste
-- Unlock bem sucedido
+- Remote Bitcoin credentials validated and saved.
+- Wallet can be created or imported.
+- Seed shown once and not persisted.
+- Wallet unlock works.
 
-## Wallet
-- Criar invoice
-- Pagar invoice
+## Core UI
+- Dashboard shows system, disks, Postgres, Bitcoin, and LND.
+- Wallet functions: invoice, pay, decode, send.
+- Lightning Ops functions: channels, peers, fees, open and close.
+- LND Config updates and restarts LND.
 
-## Dashboard
-- Exibe sistema + postgres + bitcoin remoto + lnd
-- Exibe disk lifespan com wear e estimativa
+## Reports
+- Daily job writes D-1 data to reports_daily.
+- Live reports endpoint returns today data.
+- UI renders charts for all ranges.
 
-## Segurança
-- Bind localhost
-- Segredos não aparecem em UI/log
+## App Store
+- App list returns status.
+- Install and start actions work for Bitcoin Core and LNDg.
 
+## Security
+- No secrets shown in UI or logs.
+- LAN only access by default.

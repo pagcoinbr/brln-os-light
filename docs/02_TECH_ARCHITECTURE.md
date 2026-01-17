@@ -1,74 +1,70 @@
-# FILE: docs/02_TECH_ARCHITECTURE.md
+# Technical Architecture (v0.2)
 
-# Arquitetura Técnica (v0.1)
-
-## Componentes
-1) LightningOS Manager (Go)
-- Servidor HTTPS em 127.0.0.1:8443
-- Serve UI estática (SPA) e API REST JSON
-- Coleta métricas do sistema
-- Interage com systemd (start/stop/restart)
-- Interage com LND via gRPC (localhost)
-- Valida Bitcoin remoto via RPC/ZMQ
+## Components
+1) lightningos-manager (Go)
+- HTTPS server on port 8443.
+- Serves the React SPA and a REST API.
+- Talks to systemd, LND gRPC, Bitcoin RPC and ZMQ, and Postgres.
+- Manages optional Docker apps and reports jobs.
 
 2) UI (React + Tailwind)
-- SPA
-- Wizard e Dashboard
-- Chamadas para API do Manager
+- Single page app served by the manager.
+- Uses JSON endpoints under /api.
 
-3) PostgreSQL
-- DB do LND
-- Usuário/DB dedicados
+3) LND
+- Native binary with systemd unit.
+- Data in /data/lnd, config in /data/lnd/lnd.conf.
+- gRPC on 127.0.0.1:10009.
 
-4) LND
-- Binário instalado no sistema
-- Config em /data/lnd/lnd.conf (preferido)
-- Dados em /data/lnd (ou /home/lnd/.lnd conforme setup)
-- gRPC apenas localhost
+4) Postgres
+- LND backend DB.
+- LightningOS tables for notifications and reports.
 
-## Usuários do sistema
-- `lnd`: roda lnd.service
-- `lightningos`: roda lightningos-manager.service
-- Postgres roda padrão do sistema
+5) Reports service
+- Runs via systemd timer at 00:00 local time.
+- Computes D-1 metrics from LND data.
+- Writes to reports_daily (UPSERT).
+- Live reports are computed on demand with a short TTL cache.
 
-## Diretórios
-- /opt/lightningos/manager (binário)
-- /opt/lightningos/ui (build SPA)
-- /etc/lightningos/config.yaml
-- /etc/lightningos/secrets.env (660 root:lightningos)
-- /var/lib/lightningos/state.db (opcional)
-- /var/log/lightningos/manager.log
+6) App Store (Docker based)
+- Optional apps managed by the manager with docker compose.
+- App files in /var/lib/lightningos/apps.
+- App data in /var/lib/lightningos/apps-data.
 
-## Networking
-- Manager: 127.0.0.1:8443 (HTTPS)
+7) Terminal (GoTTY)
+- Optional web terminal proxy on its own port.
+
+## Data flow
+- UI -> Manager API -> LND gRPC
+- UI -> Manager API -> Bitcoin RPC and ZMQ checks
+- Manager -> Postgres for notifications and reports
+- Manager -> systemd for service restarts
+- Manager -> docker compose for app lifecycle
+
+## Storage layout
+- /etc/lightningos/config.yaml (manager config)
+- /etc/lightningos/secrets.env (secrets and DSNs)
+- /data/lnd (LND data)
+- /opt/lightningos/manager (binary)
+- /opt/lightningos/ui (SPA build)
+- /var/lib/lightningos/apps (app files)
+- /var/lib/lightningos/apps-data (app data)
+
+## Network defaults
+- UI/API: https://127.0.0.1:8443
 - LND gRPC: 127.0.0.1:10009
-- LND REST (opcional): 127.0.0.1:8080
-- Bitcoin remoto:
-  - RPC: bitcoin.br-ln.com:8085
-  - ZMQ: 28332/28333 (tcp)
+- Bitcoin remote RPC and ZMQ configured in config.yaml
+- App ports are defined per app (for example LNDg on 8889)
+- Terminal port default: 7681
 
-## Integração com LND (gRPC)
-- Manager lê macaroon e TLS cert do LND (paths configuráveis).
-- Recomendação: manager roda com permissões para ler macaroon/tls apenas via grupo ou ACL específica.
+## Caching and timeouts
+- LND status cached with short TTL to reduce load.
+- Reports live endpoint caches metrics for about 60 seconds.
+- API calls use context timeouts to avoid blocking.
 
-## SMART / Disk Lifespan
-- Leitura via `smartctl` (smartmontools)
-- Parse de:
-  - NVMe: Percentage Used + Power On Hours
-  - SATA: Power_On_Hours, Reallocated, Pending, etc.
-- Heurística:
-  - wear_rate_per_hour = percent_used / power_on_hours
-  - hours_left = (100 - percent_used) / wear_rate_per_hour
-  - days_left = hours_left / 24
-- Estados:
-  - OK: wear < 70% e sem flags SMART críticas
-  - WARN: wear >= 70% ou alguns atributos preocupantes
-  - ERR: wear >= 90% ou SMART critical
+## Database tables
+- notifications_* (notifications history and config)
+- reports_daily (per day metrics, msat precision)
 
-# FILE: docs/02_TECH_ARCHITECTURE.md  (APPEND)
-
-## Configura????o do LND
-- Arquivo ?nico: /data/lnd/lnd.conf
-- A UI altera apenas chaves suportadas (alias, minchansize, maxchansize) na se??o [Application Options].
-- O servi?o inicia com lnd, usando /home/lnd/.lnd (symlink para /data/lnd).
-
+## Scheduler
+- lightningos-reports.timer triggers lightningos-reports.service daily.

@@ -1,84 +1,87 @@
-# FILE: docs/08_UI_WIREFRAMES.md
+# UI Wireframes (text)
 
-# UI Wireframes (texto) — LightningOS Light
-
-## Layout geral
-- Sidebar esquerda:
+## Global layout
+- Sidebar menu order:
+  - Wizard (hidden when wallet is unlocked)
   - Dashboard
+  - Reports
   - Wallet
-  - Bitcoin (Remote)
-  - LND
-  - Disks
-  - Logs
-  - Apps (placeholder)
-  - Bitcoin Local (placeholder)
-- Topbar:
-  - status badge (OK/WARN/ERR)
-  - node name (opcional)
-  - theme toggle (dark/light)
-
-## Tela: Wizard (primeiro acesso)
-### Step 1: Conectar ao Bitcoin remoto
-- Explicar: “Você vai usar o Bitcoin da comunidade (BRLN) por enquanto.”
-- Mostrar host/zmq fixos (read-only).
-- Inputs:
-  - RPC User
-  - RPC Password
-- Botão: Testar Conexão
-  - mostra RPC OK/Fail
-  - mostra ZMQ OK/Fail
-- Botão: Salvar e Continuar
-
-### Step 2: Wallet do LND
-- Escolha (cards):
-  - Criar nova wallet
-  - Importar wallet existente
-- Se Criar:
-  - input: Wallet password (e confirmação)
-  - botão: Gerar seed
-  - Mostrar 24 palavras em UI (1 vez)
-  - Checkbox obrigatório: “Eu anotei minhas 24 palavras. Sei que não será possível recuperá-las depois.”
-  - Botão: Inicializar wallet
-- Se Importar:
-  - input: Wallet password (e confirmação)
-  - textarea: seed words (24) com validação
-  - Botão: Importar e Inicializar
-
-### Step 3: Unlock
-- input: wallet password
-- botão: Unlock
-- status: unlocked OK
-
-### Step 4: Finalizar
-- CTA: “Ir para o Dashboard”
-
-## Tela: Dashboard
-- Header: Status Geral + Issues list
-- Cards:
-  - System
-  - Disks lifespan
+  - Lightning Ops
+  - LND Config
+  - Apps
   - Bitcoin Remote
-  - PostgreSQL
-  - LND
-- Seções:
-  - quick actions (restart lnd, restart manager)
-  - logs recentes
+  - Bitcoin Local
+  - Notifications
+  - Disks
+  - Terminal
+  - Logs
+- Top bar:
+  - health badge
+  - system status label
 
-## Tela: Wallet
-- Balance card (On-chain / Lightning)
-- Create invoice
-- Pay invoice
-- Recent activity (opcional)
+## Wizard
+Step 1: Bitcoin remote
+- Host and ZMQ shown
+- Inputs: RPC user, RPC pass
+- Test and save
 
-## Tela: Disks
-- Lista de discos com:
-  - wear%, power_on_hours
-  - days_left_estimate
-  - smart status + alerts
-- “What this means” tooltip
+Step 2: LND wallet
+- Create or import
+- Create shows seed words once
 
-## Tela: Logs
-- Dropdown: lnd | manager | postgres
-- lines selector: 200/500/1000
-- search box
+Step 3: Unlock wallet
+- Password input
 
+## Dashboard
+- Status overview
+- Cards: System, Disks, Postgres, Bitcoin, LND
+- Quick actions: restart LND and manager
+
+## Reports
+- Live results card (00:00 to now)
+- Filters: D-1, Month, 3 months, 6 months, 12 months, All time
+- Charts: net routing profit, revenue vs cost, balances
+
+## Wallet
+- Balances
+- Create invoice, pay invoice
+- Recent activity list
+
+## Lightning Ops
+- Channel list and peer list
+- Channel open and close
+- Fee policy update
+- Boost peers button
+
+## LND Config
+- Basic fields: alias, color, min and max channel size
+- Toggle Bitcoin source (local or remote)
+- Advanced raw editor
+
+## Apps
+- App cards with install, start, stop, uninstall
+- External app launch if port is defined
+- Admin password tools for LNDg
+
+## Bitcoin Remote
+- RPC and ZMQ health
+
+## Bitcoin Local
+- Sync progress and status
+- Node info
+- Storage and prune config
+- Block cadence card
+
+## Notifications
+- Timeline list
+- Filters and backup settings
+
+## Disks
+- SMART and wear status
+- Estimated lifespan
+
+## Terminal
+- Terminal status and access hint
+
+## Logs
+- Service selector and tail output

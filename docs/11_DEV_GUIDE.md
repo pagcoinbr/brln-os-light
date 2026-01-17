@@ -1,31 +1,50 @@
-# FILE: docs/11_DEV_GUIDE.md
+# Developer Guide
 
-# Guia de Desenvolvimento (para o CODEX)
-
-## Linguagens/Stack
-- Backend: Go (LightningOS Manager)
+## Stack
+- Backend: Go
 - Frontend: React + Tailwind
-- API: REST JSON
-- System integration: systemd, smartctl, postgres
+- API: JSON over HTTPS
+- Integrations: systemd, LND gRPC, Postgres, Bitcoin RPC, docker compose
 
-## Padrões
-- Config: YAML em /etc/lightningos/config.yaml
-- Secrets: /etc/lightningos/secrets.env (root:lightningos, 660)
-- Logs: /var/log/lightningos/ (json ou texto estruturado)
-- UI build: /opt/lightningos/ui
+## Build and run (local)
+- Build manager:
+  go build -o dist/lightningos-manager ./cmd/lightningos-manager
+- Build UI:
+  cd ui && npm install && npm run build
+- Install artifacts (typical):
+  sudo install -m 0755 dist/lightningos-manager /opt/lightningos/manager/lightningos-manager
+  sudo cp -a ui/dist/. /opt/lightningos/ui/
+  sudo systemctl restart lightningos-manager
 
-## Regras importantes
-- Não armazenar seed phrase.
-- Não expor UI fora da LAN/VPN.
-- LND gRPC apenas localhost.
-- bitcoin remoto host+zmq fixos; somente credenciais variam.
-- mainnet only.
+## Tests
+- Go tests:
+  go test ./internal/reports/...
+  go test ./internal/server/...
 
-## Testes mínimos (smoke)
-- /api/health retorna JSON válido
-- wizard salva rpc creds, reescreve lnd.conf e reinicia lnd
-- create-wallet retorna 24 words
-- init-wallet funciona
-- unlock funciona
-- dashboard renderiza estados
+## Reports CLI
+- Daily run for a specific date:
+  lightningos-manager reports-run --date YYYY-MM-DD
+- Backfill:
+  lightningos-manager reports-backfill --from YYYY-MM-DD --to YYYY-MM-DD
 
+## Config conventions
+- /etc/lightningos/config.yaml for runtime config
+- /etc/lightningos/secrets.env for secrets and DSNs
+- /data/lnd/lnd.conf is edited by the UI
+
+## Adding a new API endpoint
+- Add handler in internal/server/handlers.go
+- Register route in internal/server/routes.go
+- Update ui/src/api.ts
+- Update docs/03_API_SPEC.md
+
+## Adding an App Store app
+- Follow docs/10_APP_STORE_SPEC.md
+- Add handler file, register in apps_registry.go
+- Add icon to ui/src/assets/apps
+- Update AppStore page for icon and routing
+
+## Notes
+- Do not persist wallet seeds.
+- Keep LND gRPC on localhost.
+- Ensure installer and reports jobs stay idempotent.

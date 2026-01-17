@@ -1,80 +1,60 @@
-# FILE: docs/04_INSTALLER_SPEC.md
+# Installer Spec (v0.2)
 
-# Installer Spec (v0.1)
+## Goal
+Install and configure the LightningOS Light stack:
+- LND (native)
+- Postgres
+- lightningos-manager
+- UI build
+- systemd units
+- default configs and secrets
 
-## Objetivo
-Instalar e configurar:
-- PostgreSQL
-- LND (binário)
-- LightningOS Manager (binário)
-- serviços systemd
-- preparar configs padrão para Bitcoin remoto BRLN
-- subir UI em 127.0.0.1:8443
+## Supported OS
+- Ubuntu Server 22.04 or 24.04
 
-## Requisitos
-- Ubuntu Server (22.04/24.04)
-- acesso root/sudo
-- pacotes:
-  - postgresql
-  - smartmontools
-  - sudo
-  - ufw (opcional)
-  - curl, jq, ca-certificates
+## Installer inputs (environment overrides)
+- LND_VERSION (default 0.20.0-beta)
+- GO_VERSION (default 1.22.7)
+- NODE_VERSION (default current, fallback 20)
+- GOTTY_VERSION (default 1.0.1)
+- POSTGRES_VERSION (default latest)
+- ALLOW_STOP_UNATTENDED_UPGRADES (default 1)
 
-## Etapas do instalador (script)
-1) Verificar OS + arquitetura
-2) Criar usuários:
-- useradd --system --home /home/lnd --shell /usr/sbin/nologin lnd
-- useradd --system --home /var/lib/lightningos --shell /usr/sbin/nologin lightningos
-- criar /data/lnd e ajustar owner para lnd
-- adicionar `lightningos` ao grupo `lnd` para leitura de tls/macaroon
-- criar sudoers restrito para permitir restart de lnd/lightningos-manager/postgresql via UI
+## High level steps
+1) Validate OS and require sudo.
+2) Create users and groups:
+   - lnd (system user)
+   - lightningos (system user)
+   - operator user (TERMINAL_OPERATOR_USER)
+3) Install base packages:
+   - postgresql, smartmontools, tor, jq, curl, git, build tools
+4) Configure Tor and optional i2pd.
+5) Install Go, Node.js, and GoTTY.
+6) Prepare directories:
+   - /etc/lightningos, /opt/lightningos, /var/lib/lightningos, /var/log/lightningos
+7) Configure secrets and templates:
+   - /etc/lightningos/config.yaml
+   - /etc/lightningos/secrets.env
+   - /data/lnd/lnd.conf
+8) Configure Postgres:
+   - role and DB for LND
+   - role and DB for notifications and reports (losapp)
+   - admin role for provisioning (losadmin)
+9) Install LND binaries (lnd, lncli).
+10) Build and install lightningos-manager.
+11) Build and install UI.
+12) Generate TLS certs for the UI.
+13) Install and enable systemd units:
+   - lnd.service
+   - lightningos-manager.service
+   - lightningos-terminal.service (optional)
+   - lightningos-reports.service and timer
 
-3) Instalar pacotes:
-- apt update
-- apt install -y postgresql smartmontools curl jq ca-certificates
+## App Store and Docker
+- Docker is installed on demand by the manager when the first app is installed.
+- The installer sets sudoers rules so the lightningos user can run docker commands without a password.
 
-4) Configurar PostgreSQL:
-- criar role `lndpg` com senha aleatória
-- criar db `lnd`
-- grants mínimos
-- salvar DSN em `/etc/lightningos/secrets.env` (chmod 660, root:lightningos)
-
-5) Instalar LND binário:
-- baixar release oficial (URL param)
-- validar checksum se disponível
-- colocar em /usr/local/bin/lnd e lncli
-- chmod +x
-
-6) Criar /data/lnd/lnd.conf (template) com:
-- mainnet only
-- bitcoind remoto default (host+zmq)
-- placeholders rpcuser/rpcpass (vazios inicialmente)
-- postgres backend DSN referenciando envfile ou include
-
-7) Instalar LightningOS Manager:
-- /opt/lightningos/manager/lightningos-manager
-- UI build em /opt/lightningos/ui/ (ou embutida no binário)
-
-8) TLS para UI:
-- gerar self-signed cert em /etc/lightningos/tls/
-- manager usa esses arquivos
-
-9) systemd unit files:
-- /etc/systemd/system/lnd.service
-- /etc/systemd/system/lightningos-manager.service
-
-10) Enable e start:
-- systemctl daemon-reload
-- systemctl enable --now postgresql
-- systemctl enable --now lnd
-- systemctl enable --now lightningos-manager
-
-## Resultado esperado
-- UI disponível em https://127.0.0.1:8443
-- Wizard guiará usuário a inserir rpcuser/rpcpass e criar/importar wallet
-
-## Restrições
-- não abrir portas WAN
-- não armazenar seed phrase
-
+## Output
+- UI available on https://<host>:8443
+- Services enabled and started
+- Wizard ready for first run

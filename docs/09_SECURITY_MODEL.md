@@ -1,31 +1,37 @@
-# FILE: docs/09_SECURITY_MODEL.md
+# Security Model (v0.2)
 
-# Modelo de Segurança (v0.1)
+## Access
+- UI and API bind to the server host and are intended for LAN or VPN only.
+- No public WAN exposure by default.
 
-## Acesso
-- UI/API apenas em 127.0.0.1:8443 por padrão.
-- Usuário acessa via LAN/VPN.
-- Nada de reverse proxy ou WAN no MVP.
+## Secrets
+- /etc/lightningos/secrets.env is owned by root:lightningos with mode 660.
+- Secrets include LND Postgres DSN, notifications DSN, Bitcoin RPC creds, and terminal creds.
+- UI never re-displays stored secrets.
 
-## Segredos
-- rpcuser/rpcpass armazenados somente em /etc/lightningos/secrets.env (root:lightningos, 660) para permitir escrita pelo manager.
-- DSN Postgres idem.
-- UI nunca re-exibe segredos após salvar.
+## Wallet seed
+- Seed words are never persisted.
+- Seed is shown only once during wallet creation.
+- Wallet import sends the seed directly to LND and does not store it.
 
-## Seed Phrase
-- Nunca persistir seed.
-- Para “Criar wallet”: exibir seed words 1 vez e exigir confirmação.
-- Para “Importar”: capturar seed via UI e enviar para endpoint que chama InitWallet; não logar seed.
+## Users and permissions
+- lnd runs as user lnd.
+- lightningos runs the manager and owns app data.
+- lightningos uses sudoers to run a small allow list of systemctl and docker commands.
 
-## Permissões
-- `lnd` e `lightningos` são system users sem shell.
-- Manager só precisa:
-  - ler tls/macaroon do LND (preferível via grupo/ACL)
-  - editar /data/lnd/lnd.conf (via root? alternativa: manager roda sem root e usa helper via sudoers com comandos restritos)
-Recomendação v0.1: rodar manager sem root + usar helper com sudoers restrito (v0.2). No MVP pode rodar com permissões ampliadas, mas documentar.
-Implementação v0.1: `lightningos` no grupo `lnd`, com tls.cert/admin.macaroon 640 para leitura via grupo.
+## LND access
+- Manager reads TLS cert and admin macaroon via group access.
+- LND gRPC is on localhost only.
 
-## Logs
-- Redigir (redact) strings que pareçam senha/seed/DSN.
-- Não logar request bodies de endpoints sensíveis.
+## App Store
+- Docker is installed on demand.
+- App containers are managed via docker compose with passwordless sudo for lightningos.
+- App secrets are stored in app-specific .env or data files with restrictive permissions.
 
+## Terminal
+- Optional GoTTY terminal requires a credential in secrets.env.
+- Terminal can be disabled by setting TERMINAL_ENABLED=0.
+
+## Reports and notifications
+- Reports data and notification history are stored in Postgres.
+- Reports live endpoint caches data briefly and never writes secrets.
