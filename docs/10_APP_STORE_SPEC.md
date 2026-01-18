@@ -7,6 +7,7 @@ The App Store is a built-in catalog of optional services. Apps are defined in co
 - bitcoincore: Local Bitcoin Core node (Docker)
 - lndg: LNDg analytics dashboard (Docker)
 - elements: Elements/Liquid node (native binary)
+- peerswap: Peerswap daemon + psweb UI (native binaries)
 
 ## App model
 Apps are defined in Go via the appHandler interface:

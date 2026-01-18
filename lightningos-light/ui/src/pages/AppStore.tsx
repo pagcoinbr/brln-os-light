@@ -3,6 +3,7 @@ import { getAppAdminPassword, getApps, installApp, resetAppAdmin, startApp, stop
 import lndgIcon from '../assets/apps/lndg.ico'
 import bitcoincoreIcon from '../assets/apps/bitcoincore.svg'
 import elementsIcon from '../assets/apps/elements.svg'
+import peerswapIcon from '../assets/apps/peerswap.svg'
 
 type AppInfo = {
   id: string
@@ -17,7 +18,8 @@ type AppInfo = {
 const iconMap: Record<string, string> = {
   lndg: lndgIcon,
   bitcoincore: bitcoincoreIcon,
-  elements: elementsIcon
+  elements: elementsIcon,
+  peerswap: peerswapIcon
 }
 
 const internalRoutes: Record<string, string> = {

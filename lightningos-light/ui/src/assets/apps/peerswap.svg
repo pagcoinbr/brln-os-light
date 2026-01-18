@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Peerswap">
+  <circle cx="64" cy="64" r="64" fill="#0b0b0b"/>
+  <path
+    d="M70 14 L34 76 H60 L54 114 L94 52 H68 Z"
+    fill="#f4b400"
+  />
+  <path
+    d="M64 18 L30 80 H56 L48 112 L88 48 H62 Z"
+    fill="#f5f5f5"
+  />
+</svg>

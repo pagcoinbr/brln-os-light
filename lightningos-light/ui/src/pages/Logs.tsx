@@ -5,6 +5,8 @@ const services = [
   { label: 'LND', value: 'lnd' },
   { label: 'Manager', value: 'lightningos-manager' },
   { label: 'Elements', value: 'lightningos-elements' },
+  { label: 'Peerswapd', value: 'lightningos-peerswapd' },
+  { label: 'Psweb', value: 'lightningos-psweb' },
   { label: 'Postgres', value: 'postgresql' }
 ]
 

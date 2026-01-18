@@ -829,6 +829,10 @@ func mapService(name string) string {
     return "lightningos-manager"
   case "lightningos-elements", "elementsd":
     return elementsServiceName
+  case "lightningos-peerswapd", "peerswapd":
+    return peerswapServiceName
+  case "lightningos-psweb", "psweb":
+    return pswebServiceName
   case "postgresql":
     return "postgresql"
   default:

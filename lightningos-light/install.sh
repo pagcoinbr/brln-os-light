@@ -1006,7 +1006,27 @@ install_manager() {
     echo "$current_stamp" > "$stamp_file"
     chmod 0644 "$stamp_file"
   fi
+  install_peerswap_assets
   print_ok "Manager built and installed"
+}
+
+install_peerswap_assets() {
+  local src="$REPO_ROOT/lightningos-light/assets/binaries/peerswap/version_5_0/amd64"
+  local dest="/opt/lightningos/manager/assets/binaries/peerswap/version_5_0/amd64"
+  if [[ ! -d "$src" ]]; then
+    print_warn "Peerswap assets not found at $src; skipping"
+    return
+  fi
+  print_step "Staging Peerswap assets"
+  mkdir -p "$dest"
+  for bin in peerswapd pscli psweb; do
+    if [[ -f "$src/$bin" ]]; then
+      install -m 0755 "$src/$bin" "$dest/$bin"
+    else
+      print_warn "Peerswap binary missing: $src/$bin"
+    fi
+  done
+  print_ok "Peerswap assets staged"
 }
 
 install_ui() {
