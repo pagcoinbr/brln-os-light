@@ -48,7 +48,9 @@ func (s *Service) RunDaily(ctx context.Context, reportDate time.Time, loc *time.
   if err != nil {
     return Row{}, err
   }
-  metrics = s.attachBalances(ctx, metrics)
+  if shouldAttachBalances(reportDate, loc) {
+    metrics = s.attachBalances(ctx, metrics)
+  }
 
   row := Row{ReportDate: dateOnly(reportDate, loc), Metrics: metrics}
   if err := UpsertDaily(ctx, s.db, row); err != nil {
@@ -119,6 +121,15 @@ func (s *Service) Live(ctx context.Context, now time.Time, loc *time.Location) (
   s.liveMu.Unlock()
 
   return tr, metrics, nil
+}
+
+func shouldAttachBalances(reportDate time.Time, loc *time.Location) bool {
+  if loc == nil {
+    loc = time.Local
+  }
+  today := dateOnly(time.Now(), loc)
+  target := dateOnly(reportDate, loc)
+  return target.Equal(today.AddDate(0, 0, -1))
 }
 
 func (s *Service) attachBalances(ctx context.Context, metrics Metrics) Metrics {
