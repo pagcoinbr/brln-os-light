@@ -439,7 +439,7 @@ func updateElementsConfig(raw string, values elementsConfigValues) string {
       seen[key] = true
       continue
     }
-    if opt, ok := optional[key]; ok {
+    if _, ok := optional[key]; ok {
       updated = append(updated, line)
       seen[key] = true
       continue
