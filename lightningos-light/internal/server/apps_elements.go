@@ -181,19 +181,19 @@ func (s *Server) stopElements(ctx context.Context) error {
 }
 
 func (s *Server) uninstallElements(ctx context.Context) error {
-  paths := elementsAppPaths()
-  if fileExists(paths.ServicePath) {
-    _, _ = runSystemd(ctx, "systemctl", "disable", "--now", elementsServiceName)
-    _, _ = runSystemd(ctx, "systemctl", "daemon-reload")
-    _, _ = runSystemd(ctx, "/bin/sh", "-c", "rm -f "+paths.ServicePath)
-  }
-  if err := os.RemoveAll(paths.Root); err != nil {
-    return fmt.Errorf("failed to remove app files: %w", err)
-  }
-  if err := os.RemoveAll(paths.AppDataDir); err != nil {
-    return fmt.Errorf("failed to remove app data: %w", err)
-  }
-  return nil
+	paths := elementsAppPaths()
+	if fileExists(paths.ServicePath) {
+		_, _ = runSystemd(ctx, "systemctl", "disable", "--now", elementsServiceName)
+		_, _ = runSystemd(ctx, "systemctl", "daemon-reload")
+		_, _ = runSystemd(ctx, "/bin/sh", "-c", "rm -f "+paths.ServicePath)
+	}
+	if _, err := runSystemd(ctx, "/bin/sh", "-c", "rm -rf "+paths.Root); err != nil {
+		return fmt.Errorf("failed to remove app files: %w", err)
+	}
+	if _, err := runSystemd(ctx, "/bin/sh", "-c", "rm -rf "+paths.AppDataDir); err != nil {
+		return fmt.Errorf("failed to remove app data: %w", err)
+	}
+	return nil
 }
 
 func ensureElementsDataDir(ctx context.Context, paths elementsPaths) error {
