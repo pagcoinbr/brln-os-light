@@ -74,11 +74,13 @@ func (s *Server) handleElementsMainchainPost(w http.ResponseWriter, r *http.Requ
     writeError(w, http.StatusInternalServerError, "failed to prepare app data")
     return
   }
+  previousSource := readElementsMainchainSource(paths)
   if err := writeElementsMainchainSource(paths, source); err != nil {
     writeError(w, http.StatusInternalServerError, "failed to store mainchain source")
     return
   }
   if err := ensureElementsConfig(ctx, paths, s.cfg); err != nil {
+    _ = writeElementsMainchainSource(paths, previousSource)
     writeError(w, http.StatusInternalServerError, err.Error())
     return
   }

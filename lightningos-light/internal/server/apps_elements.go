@@ -588,7 +588,7 @@ type elementsMainchainConfig struct {
 func resolveElementsMainchainConfig(ctx context.Context, cfg *config.Config, paths elementsPaths) (elementsMainchainConfig, error) {
   source := readElementsMainchainSource(paths)
   if source == "local" {
-    localCfg, err := readLocalBitcoinRPCConfigFromFile()
+    localCfg, err := readLocalBitcoinRPCConfigFromFile(ctx)
     if err != nil {
       return elementsMainchainConfig{}, err
     }
@@ -635,17 +635,22 @@ func writeElementsMainchainSource(paths elementsPaths, source string) error {
   return writeFile(paths.MainchainSourcePath, normalized+"\n", 0640)
 }
 
-func readLocalBitcoinRPCConfigFromFile() (bitcoinRPCConfig, error) {
+func readLocalBitcoinRPCConfigFromFile(ctx context.Context) (bitcoinRPCConfig, error) {
   paths := bitcoinCoreAppPaths()
-  raw, err := os.ReadFile(paths.ConfigPath)
+  content, err := os.ReadFile(paths.ConfigPath)
   if err != nil {
-    return bitcoinRPCConfig{}, fmt.Errorf("failed to read local bitcoin.conf: %w", err)
+    out, runErr := runSystemd(ctx, "/bin/sh", "-c", "cat "+paths.ConfigPath)
+    if runErr != nil {
+      return bitcoinRPCConfig{}, fmt.Errorf("failed to read local bitcoin.conf: %w", err)
+    }
+    content = []byte(out)
   }
-  user, pass, _, _ := parseBitcoinCoreRPCConfig(string(raw))
+  raw := string(content)
+  user, pass, _, _ := parseBitcoinCoreRPCConfig(raw)
   if user == "" || pass == "" {
     return bitcoinRPCConfig{}, errors.New("local RPC credentials missing")
   }
-  port := parseBitcoinRPCPort(string(raw))
+  port := parseBitcoinRPCPort(raw)
   host := fmt.Sprintf("127.0.0.1:%d", port)
   return bitcoinRPCConfig{
     Host: host,
