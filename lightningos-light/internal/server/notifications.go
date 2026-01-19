@@ -74,11 +74,13 @@ type Notifier struct {
 
   mu sync.Mutex
   backupMu sync.Mutex
+  pendingMu sync.Mutex
   subscribers map[chan Notification]struct{}
   started bool
   stop chan struct{}
   lastCleanup time.Time
   backupSent map[string]time.Time
+  pendingSent map[string]time.Time
 }
 
 func NewNotifier(db *pgxpool.Pool, lnd *lndclient.Client, logger *log.Logger) *Notifier {
@@ -88,6 +90,7 @@ func NewNotifier(db *pgxpool.Pool, lnd *lndclient.Client, logger *log.Logger) *N
     logger: logger,
     subscribers: map[chan Notification]struct{}{},
     backupSent: map[string]time.Time{},
+    pendingSent: map[string]time.Time{},
   }
 }
 
@@ -913,11 +916,13 @@ func (n *Notifier) runPendingChannels() {
 
     for _, item := range pending {
       reason := ""
+      isClosing := false
       switch item.Status {
       case "opening":
         reason = "opening"
       case "closing", "force_closing", "waiting_close":
         reason = "closing"
+        isClosing = true
       default:
         continue
       }
@@ -927,8 +932,68 @@ func (n *Notifier) runPendingChannels() {
         channelPoint = strings.TrimSpace(item.ClosingTxid)
       }
       n.triggerTelegramBackup(reason, channelPoint)
+      if isClosing {
+        n.notifyPendingChannelClosing(item, channelPoint)
+      }
     }
   }
+}
+
+func (n *Notifier) notifyPendingChannelClosing(item lndclient.PendingChannelInfo, key string) {
+  eventKey := strings.TrimSpace(key)
+  if eventKey == "" {
+    return
+  }
+  eventKey = "channel:closing:" + eventKey
+  if !n.markPendingNotification(eventKey) {
+    return
+  }
+
+  amount := item.LocalBalanceSat
+  if amount <= 0 && item.LimboBalance > 0 {
+    amount = item.LimboBalance
+  }
+  status := "PENDING"
+  switch item.Status {
+  case "force_closing":
+    status = "FORCE_CLOSING"
+  case "waiting_close":
+    status = "WAITING_CLOSE"
+  }
+
+  evt := Notification{
+    OccurredAt: time.Now().UTC(),
+    Type: "channel",
+    Action: "closing",
+    Direction: "neutral",
+    Status: status,
+    AmountSat: amount,
+    PeerPubkey: item.RemotePubkey,
+    PeerAlias: item.PeerAlias,
+    ChannelPoint: item.ChannelPoint,
+    Txid: item.ClosingTxid,
+  }
+
+  ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+  _, _ = n.upsertNotification(ctx, eventKey, evt)
+  cancel()
+}
+
+func (n *Notifier) markPendingNotification(key string) bool {
+  if n == nil {
+    return false
+  }
+  trimmed := strings.TrimSpace(key)
+  if trimmed == "" {
+    return false
+  }
+  n.pendingMu.Lock()
+  defer n.pendingMu.Unlock()
+  if _, ok := n.pendingSent[trimmed]; ok {
+    return false
+  }
+  n.pendingSent[trimmed] = time.Now().UTC()
+  return true
 }
 
 func (n *Notifier) channelEventToNotification(update *lnrpc.ChannelEventUpdate) (Notification, string) {

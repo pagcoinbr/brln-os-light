@@ -73,6 +73,8 @@ const labelForAction = (value: string) => {
       return 'closed'
     case 'opening':
       return 'opening'
+    case 'closing':
+      return 'closing'
     case 'forwarded':
       return 'forwarded'
     case 'rebalanced':
@@ -429,6 +431,19 @@ const mempoolTxLink = (txid?: string) => {
                     detailParts.push(
                       <a
                         key={`${item.id}-tx`}
+                        className="text-emerald-200 hover:text-emerald-100"
+                        href={link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Tx {item.txid.slice(0, 16)}...
+                      </a>
+                    )
+                  } else if (item.type === 'onchain') {
+                    const link = mempoolTxLink(item.txid)
+                    detailParts.push(
+                      <a
+                        key={`${item.id}-onchain-tx`}
                         className="text-emerald-200 hover:text-emerald-100"
                         href={link}
                         target="_blank"
