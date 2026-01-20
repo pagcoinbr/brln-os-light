@@ -185,6 +185,14 @@ func lndRPCErrorMessage(err error) string {
   return msg
 }
 
+func lndDetailedErrorMessage(err error) string {
+  msg := lndRPCErrorMessage(err)
+  if msg == "" || msg == "LND error" {
+    return lndStatusMessage(err)
+  }
+  return msg
+}
+
 func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
   ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
   defer cancel()
@@ -916,7 +924,7 @@ func (s *Server) handleLNChannels(w http.ResponseWriter, r *http.Request) {
 
   channels, err := s.lnd.ListChannels(ctx)
   if err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -961,7 +969,7 @@ func (s *Server) handleLNPeers(w http.ResponseWriter, r *http.Request) {
 
   peers, err := s.lnd.ListPeers(ctx)
   if err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -1030,7 +1038,7 @@ func (s *Server) handleLNDisconnectPeer(w http.ResponseWriter, r *http.Request) 
   defer cancel()
 
   if err := s.lnd.DisconnectPeer(ctx, pubkey); err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -1056,7 +1064,7 @@ func (s *Server) handleLNBoostPeers(w http.ResponseWriter, r *http.Request) {
   peers, err := s.lnd.ListPeers(peersCtx)
   peersCancel()
   if err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -1316,7 +1324,7 @@ func (s *Server) handleLNOpenChannel(w http.ResponseWriter, r *http.Request) {
 
   channelPoint, err := s.lnd.OpenChannel(ctx, pubkey, req.LocalFundingSat, req.CloseAddress, req.Private, req.SatPerVbyte)
   if err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -1354,7 +1362,7 @@ func (s *Server) handleLNCloseChannel(w http.ResponseWriter, r *http.Request) {
   defer cancel()
 
   if err := s.lnd.CloseChannel(ctx, req.ChannelPoint, req.Force); err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -1423,7 +1431,7 @@ func (s *Server) handleLNChannelFees(w http.ResponseWriter, r *http.Request) {
 
   policy, err := s.lnd.GetChannelPolicy(ctx, channelPoint)
   if err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
