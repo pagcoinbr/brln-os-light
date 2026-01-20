@@ -40,7 +40,7 @@ The installer provisions everything needed on a clean Ubuntu box:
 
 Usage:
 ```bash
-git clone <REPO_URL>
+git clone https://github.com/jvxis/brln-os-light
 cd brln-os-light/lightningos-light
 sudo ./install.sh
 ```
