@@ -970,7 +970,7 @@ func (c *Client) OpenChannel(ctx context.Context, pubkeyHex string, localFunding
   return channelPointString(resp), nil
 }
 
-func (c *Client) CloseChannel(ctx context.Context, channelPoint string, force bool) error {
+func (c *Client) CloseChannel(ctx context.Context, channelPoint string, force bool, satPerVbyte int64) error {
   cp, err := parseChannelPoint(channelPoint)
   if err != nil {
     return err
@@ -983,11 +983,15 @@ func (c *Client) CloseChannel(ctx context.Context, channelPoint string, force bo
   defer conn.Close()
 
   client := lnrpc.NewLightningClient(conn)
-  stream, err := client.CloseChannel(ctx, &lnrpc.CloseChannelRequest{
+  req := &lnrpc.CloseChannelRequest{
     ChannelPoint: cp,
     Force: force,
     NoWait: true,
-  })
+  }
+  if satPerVbyte > 0 {
+    req.SatPerVbyte = uint64(satPerVbyte)
+  }
+  stream, err := client.CloseChannel(ctx, req)
   if err != nil {
     return err
   }

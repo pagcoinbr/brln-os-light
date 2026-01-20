@@ -110,7 +110,7 @@ export const openChannel = (payload: {
   sat_per_vbyte?: number
   private?: boolean
 }) => request('/api/lnops/channel/open', { method: 'POST', body: JSON.stringify(payload) })
-export const closeChannel = (payload: { channel_point: string; force?: boolean }) =>
+export const closeChannel = (payload: { channel_point: string; force?: boolean; sat_per_vbyte?: number }) =>
   request('/api/lnops/channel/close', { method: 'POST', body: JSON.stringify(payload) })
 export const updateChannelFees = (payload: {
   channel_point?: string

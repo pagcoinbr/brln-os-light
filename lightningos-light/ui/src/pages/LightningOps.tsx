@@ -103,6 +103,9 @@ export default function LightningOps() {
 
   const [closePoint, setClosePoint] = useState('')
   const [closeForce, setCloseForce] = useState(false)
+  const [closeFeeRate, setCloseFeeRate] = useState('')
+  const [closeFeeHint, setCloseFeeHint] = useState<{ fastest?: number; hour?: number } | null>(null)
+  const [closeFeeStatus, setCloseFeeStatus] = useState('')
   const [closeStatus, setCloseStatus] = useState('')
 
   const [feeScopeAll, setFeeScopeAll] = useState(true)
@@ -163,11 +166,15 @@ export default function LightningOps() {
         const hour = Number(res?.hourFee || 0)
         setOpenFeeHint({ fastest, hour })
         setOpenFeeRate((prev) => (prev ? prev : fastest > 0 ? String(fastest) : prev))
+        setCloseFeeHint({ fastest, hour })
+        setCloseFeeRate((prev) => (prev ? prev : fastest > 0 ? String(fastest) : prev))
         setOpenFeeStatus('')
+        setCloseFeeStatus('')
       })
       .catch(() => {
         if (!mounted) return
         setOpenFeeStatus('Fee suggestions unavailable.')
+        setCloseFeeStatus('Fee suggestions unavailable.')
       })
     return () => {
       mounted = false
@@ -369,7 +376,8 @@ export default function LightningOps() {
       return
     }
     try {
-      await closeChannel({ channel_point: closePoint, force: closeForce })
+      const feeRate = Number(closeFeeRate || 0)
+      await closeChannel({ channel_point: closePoint, force: closeForce, sat_per_vbyte: feeRate > 0 ? feeRate : undefined })
       setCloseStatus('Close initiated.')
       load()
     } catch (err: any) {
@@ -775,6 +783,35 @@ export default function LightningOps() {
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
+          <label className="text-sm text-fog/70">
+            Fee rate (sat/vB)
+            <span className="ml-2 text-xs text-fog/50">
+              Fastest: {closeFeeHint?.fastest ?? '-'} | 1h: {closeFeeHint?.hour ?? '-'}
+            </span>
+          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              className="input-field flex-1 min-w-[140px]"
+              placeholder="Auto"
+              type="number"
+              min={1}
+              value={closeFeeRate}
+              onChange={(e) => setCloseFeeRate(e.target.value)}
+            />
+            <button
+              className="btn-secondary text-xs px-3 py-2"
+              type="button"
+              onClick={() => {
+                if (closeFeeHint?.fastest) {
+                  setCloseFeeRate(String(closeFeeHint.fastest))
+                }
+              }}
+              disabled={!closeFeeHint?.fastest}
+            >
+              Use fastest
+            </button>
+            {closeFeeStatus && <p className="text-xs text-fog/50">{closeFeeStatus}</p>}
+          </div>
           <label className="flex items-center gap-2 text-sm text-fog/70">
             <input type="checkbox" checked={closeForce} onChange={(e) => setCloseForce(e.target.checked)} />
             Force close (not recommended)

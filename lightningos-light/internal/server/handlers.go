@@ -1348,6 +1348,7 @@ func (s *Server) handleLNCloseChannel(w http.ResponseWriter, r *http.Request) {
   var req struct {
     ChannelPoint string `json:"channel_point"`
     Force bool `json:"force"`
+    SatPerVbyte int64 `json:"sat_per_vbyte"`
   }
   if err := readJSON(r, &req); err != nil {
     writeError(w, http.StatusBadRequest, "invalid json")
@@ -1361,7 +1362,12 @@ func (s *Server) handleLNCloseChannel(w http.ResponseWriter, r *http.Request) {
   ctx, cancel := context.WithTimeout(r.Context(), lndRPCTimeout)
   defer cancel()
 
-  if err := s.lnd.CloseChannel(ctx, req.ChannelPoint, req.Force); err != nil {
+  if req.SatPerVbyte < 0 {
+    writeError(w, http.StatusBadRequest, "sat_per_vbyte must be zero or positive")
+    return
+  }
+
+  if err := s.lnd.CloseChannel(ctx, req.ChannelPoint, req.Force, req.SatPerVbyte); err != nil {
     writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
