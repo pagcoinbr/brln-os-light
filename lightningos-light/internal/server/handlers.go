@@ -1992,6 +1992,7 @@ func (s *Server) handleWalletSend(w http.ResponseWriter, r *http.Request) {
     Address string `json:"address"`
     AmountSat int64 `json:"amount_sat"`
     SatPerVbyte int64 `json:"sat_per_vbyte"`
+    SweepAll bool `json:"sweep_all"`
   }
   if err := readJSON(r, &req); err != nil {
     writeError(w, http.StatusBadRequest, "invalid json")
@@ -2002,15 +2003,18 @@ func (s *Server) handleWalletSend(w http.ResponseWriter, r *http.Request) {
     writeError(w, http.StatusBadRequest, "address required")
     return
   }
-  if req.AmountSat <= 0 {
+  if !req.SweepAll && req.AmountSat <= 0 {
     writeError(w, http.StatusBadRequest, "amount_sat must be positive")
     return
+  }
+  if req.SweepAll {
+    req.AmountSat = 0
   }
 
   ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
   defer cancel()
 
-  txid, err := s.lnd.SendCoins(ctx, address, req.AmountSat, req.SatPerVbyte)
+  txid, err := s.lnd.SendCoins(ctx, address, req.AmountSat, req.SatPerVbyte, req.SweepAll)
   if err != nil {
     msg := lndRPCErrorMessage(err)
     if isTimeoutError(err) {

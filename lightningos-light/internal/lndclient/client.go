@@ -541,7 +541,7 @@ func (c *Client) PayInvoice(ctx context.Context, paymentRequest string, outgoing
   return err
 }
 
-func (c *Client) SendCoins(ctx context.Context, address string, amountSat int64, satPerVbyte int64) (string, error) {
+func (c *Client) SendCoins(ctx context.Context, address string, amountSat int64, satPerVbyte int64, sendAll bool) (string, error) {
   conn, err := c.dial(ctx, true)
   if err != nil {
     return "", err
@@ -552,7 +552,10 @@ func (c *Client) SendCoins(ctx context.Context, address string, amountSat int64,
 
   req := &lnrpc.SendCoinsRequest{
     Addr: address,
-    Amount: amountSat,
+    SendAll: sendAll,
+  }
+  if !sendAll {
+    req.Amount = amountSat
   }
   if satPerVbyte > 0 {
     req.SatPerVbyte = uint64(satPerVbyte)

@@ -22,6 +22,7 @@ export default function Wallet() {
   const [sendOpen, setSendOpen] = useState(false)
   const [sendAddress, setSendAddress] = useState('')
   const [sendAmount, setSendAmount] = useState('')
+  const [sendSweepAll, setSendSweepAll] = useState(false)
   const [sendFeeRate, setSendFeeRate] = useState('')
   const [sendFeeHint, setSendFeeHint] = useState<{ fastest?: number; hour?: number } | null>(null)
   const [sendFeeStatus, setSendFeeStatus] = useState('')
@@ -281,22 +282,24 @@ export default function Wallet() {
       setSendStatus('Destination address required.')
       return
     }
-    if (amountSat <= 0) {
+    if (!sendSweepAll && amountSat <= 0) {
       setSendStatus('Amount must be positive.')
       return
     }
     setSendRunning(true)
     setSendStatus('Sending on-chain...')
     try {
-      const res = await sendOnchain({
+      const payload = {
         address: target,
-        amount_sat: amountSat,
-        sat_per_vbyte: feeRate > 0 ? feeRate : undefined
-      })
+        sat_per_vbyte: feeRate > 0 ? feeRate : undefined,
+        ...(sendSweepAll ? { sweep_all: true } : { amount_sat: amountSat })
+      }
+      const res = await sendOnchain(payload)
       const txid = res?.txid ? ` Txid: ${res.txid}` : ''
       setSendStatus(`On-chain send broadcast.${txid}`)
       setSendAddress('')
       setSendAmount('')
+      setSendSweepAll(false)
     } catch (err: any) {
       setSendStatus(err?.message || 'On-chain send failed.')
     } finally {
@@ -414,14 +417,36 @@ export default function Wallet() {
                   onChange={(e) => setSendAddress(e.target.value)}
                 />
                 <div className="grid gap-3 lg:grid-cols-2">
-                  <input
-                    className="input-field"
-                    placeholder="Amount (sats)"
-                    type="number"
-                    min={1}
-                    value={sendAmount}
-                    onChange={(e) => setSendAmount(e.target.value)}
-                  />
+                  <div className="space-y-2">
+                    <input
+                      className="input-field"
+                      placeholder="Amount (sats)"
+                      type="number"
+                      min={1}
+                      value={sendAmount}
+                      onChange={(e) => setSendAmount(e.target.value)}
+                      disabled={sendSweepAll}
+                    />
+                    <label className="flex items-center gap-2 text-xs text-fog/60">
+                      <input
+                        type="checkbox"
+                        checked={sendSweepAll}
+                        onChange={(e) => {
+                          const checked = e.target.checked
+                          setSendSweepAll(checked)
+                          if (checked) {
+                            setSendAmount('')
+                          }
+                        }}
+                      />
+                      Sweep all
+                    </label>
+                    {sendSweepAll && (
+                      <p className="text-xs text-brass">
+                        Warning: This will send all available on-chain funds (minus fees) to the destination address.
+                      </p>
+                    )}
+                  </div>
                   <div className="space-y-2">
                     <label className="text-xs text-fog/60">
                       Fee rate (sat/vB)
