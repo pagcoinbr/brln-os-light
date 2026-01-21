@@ -95,11 +95,24 @@ func resolveLightningAddress(ctx context.Context, address string, amountSat int6
   }
 
   amountMsat := amountSat * 1000
-  if payResp.MinSendable > 0 && amountMsat < payResp.MinSendable {
-    return "", fmt.Errorf("amount below minimum (%d sats)", payResp.MinSendable/1000)
-  }
-  if payResp.MaxSendable > 0 && amountMsat > payResp.MaxSendable {
-    return "", fmt.Errorf("amount above maximum (%d sats)", payResp.MaxSendable/1000)
+  if (payResp.MinSendable > 0 && amountMsat < payResp.MinSendable) || (payResp.MaxSendable > 0 && amountMsat > payResp.MaxSendable) {
+    minSat := int64(0)
+    maxSat := int64(0)
+    if payResp.MinSendable > 0 {
+      minSat = (payResp.MinSendable + 999) / 1000
+    }
+    if payResp.MaxSendable > 0 {
+      maxSat = payResp.MaxSendable / 1000
+    }
+    if minSat > 0 && maxSat > 0 {
+      return "", fmt.Errorf("amount out of range. Minimum is %d sats; maximum is %d sats", minSat, maxSat)
+    }
+    if minSat > 0 {
+      return "", fmt.Errorf("amount too small. Minimum is %d sats", minSat)
+    }
+    if maxSat > 0 {
+      return "", fmt.Errorf("amount too large. Maximum is %d sats", maxSat)
+    }
   }
 
   callbackURL, err := url.Parse(payResp.Callback)
