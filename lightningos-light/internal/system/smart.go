@@ -5,6 +5,7 @@ import (
   "bytes"
   "context"
   "os/exec"
+  "path/filepath"
   "strconv"
   "strings"
 )
@@ -17,6 +18,18 @@ type DiskSmart struct {
   DaysLeftEstimate int64 `json:"days_left_estimate"`
   SmartStatus string `json:"smart_status"`
   Alerts []string `json:"alerts"`
+  TotalGB float64 `json:"total_gb,omitempty"`
+  UsedGB float64 `json:"used_gb,omitempty"`
+  UsedPercent float64 `json:"used_percent,omitempty"`
+  Partitions []DiskPartition `json:"partitions,omitempty"`
+}
+
+type DiskPartition struct {
+  Device string `json:"device"`
+  Mount string `json:"mount,omitempty"`
+  TotalGB float64 `json:"total_gb,omitempty"`
+  UsedGB float64 `json:"used_gb,omitempty"`
+  UsedPercent float64 `json:"used_percent,omitempty"`
 }
 
 func ReadDiskSmart(ctx context.Context) ([]DiskSmart, error) {
@@ -24,6 +37,11 @@ func ReadDiskSmart(ctx context.Context) ([]DiskSmart, error) {
   if err != nil {
     return nil, err
   }
+
+  usageEntries, _ := readDiskUsageEntries(ctx)
+  blockEntries, _ := readBlockDeviceEntries(ctx)
+  usageByDisk := groupDiskUsage(usageEntries, blockEntries)
+  diskSizes := diskSizeByPath(blockEntries)
 
   out := make([]DiskSmart, 0, len(devices))
   for _, dev := range devices {
@@ -39,6 +57,19 @@ func ReadDiskSmart(ctx context.Context) ([]DiskSmart, error) {
     }
     if smart.Type == "" {
       smart.Type = guessDiskType(devicePath)
+    }
+    if parts, ok := usageByDisk[devicePath]; ok {
+      smart.Partitions = parts
+      totalGB, usedGB := sumPartitionUsage(parts)
+      smart.UsedGB = usedGB
+      if diskTotal, ok := diskSizes[devicePath]; ok && diskTotal > 0 {
+        smart.TotalGB = diskTotal
+      } else if totalGB > 0 {
+        smart.TotalGB = totalGB
+      }
+      if smart.TotalGB > 0 {
+        smart.UsedPercent = (smart.UsedGB / smart.TotalGB) * 100
+      }
     }
     out = append(out, smart)
   }
@@ -62,6 +93,235 @@ func listBlockDevices(ctx context.Context) ([]string, error) {
     }
   }
   return devices, nil
+}
+
+type diskUsageEntry struct {
+  Device string
+  Mount string
+  TotalGB float64
+  UsedGB float64
+  UsedPercent float64
+}
+
+func readDiskUsageEntries(ctx context.Context) ([]diskUsageEntry, error) {
+  out, err := RunCommand(ctx, "df", "-B1", "-x", "tmpfs", "-x", "devtmpfs")
+  if err != nil {
+    return nil, err
+  }
+  var entries []diskUsageEntry
+  scanner := bufio.NewScanner(bytes.NewBufferString(out))
+  first := true
+  for scanner.Scan() {
+    line := scanner.Text()
+    if first {
+      first = false
+      continue
+    }
+    fields := strings.Fields(line)
+    if len(fields) < 6 {
+      continue
+    }
+    device := fields[0]
+    if !strings.HasPrefix(device, "/dev/") {
+      continue
+    }
+    totalBytes, _ := strconv.ParseFloat(fields[1], 64)
+    usedBytes, _ := strconv.ParseFloat(fields[2], 64)
+    usedPercent, _ := strconv.ParseFloat(strings.TrimSuffix(fields[4], "%"), 64)
+    entries = append(entries, diskUsageEntry{
+      Device: device,
+      Mount: fields[5],
+      TotalGB: totalBytes / (1024 * 1024 * 1024),
+      UsedGB: usedBytes / (1024 * 1024 * 1024),
+      UsedPercent: usedPercent,
+    })
+  }
+  return entries, nil
+}
+
+type blockDeviceEntry struct {
+  Name string
+  KernelName string
+  Type string
+  Parent string
+  Path string
+  SizeBytes int64
+}
+
+func readBlockDeviceEntries(ctx context.Context) ([]blockDeviceEntry, error) {
+  out, err := RunCommand(ctx, "lsblk", "-P", "-b", "-o", "NAME,KNAME,TYPE,PKNAME,PATH,SIZE")
+  if err != nil {
+    return nil, err
+  }
+  var entries []blockDeviceEntry
+  scanner := bufio.NewScanner(bytes.NewBufferString(out))
+  for scanner.Scan() {
+    values := parseKeyValueLine(scanner.Text())
+    sizeBytes, _ := strconv.ParseInt(values["SIZE"], 10, 64)
+    entries = append(entries, blockDeviceEntry{
+      Name: values["NAME"],
+      KernelName: values["KNAME"],
+      Type: values["TYPE"],
+      Parent: values["PKNAME"],
+      Path: values["PATH"],
+      SizeBytes: sizeBytes,
+    })
+  }
+  return entries, nil
+}
+
+func parseKeyValueLine(line string) map[string]string {
+  out := make(map[string]string)
+  for _, part := range strings.Fields(line) {
+    pieces := strings.SplitN(part, "=", 2)
+    if len(pieces) != 2 {
+      continue
+    }
+    out[pieces[0]] = strings.Trim(pieces[1], `"`)
+  }
+  return out
+}
+
+func diskSizeByPath(entries []blockDeviceEntry) map[string]float64 {
+  sizes := make(map[string]float64)
+  for _, entry := range entries {
+    if entry.Type != "disk" || entry.Path == "" || entry.SizeBytes <= 0 {
+      continue
+    }
+    sizes[entry.Path] = float64(entry.SizeBytes) / (1024 * 1024 * 1024)
+  }
+  return sizes
+}
+
+func groupDiskUsage(usage []diskUsageEntry, entries []blockDeviceEntry) map[string][]DiskPartition {
+  byKernel := make(map[string]blockDeviceEntry)
+  byPath := make(map[string]blockDeviceEntry)
+  for _, entry := range entries {
+    if entry.KernelName != "" {
+      byKernel[entry.KernelName] = entry
+    } else if entry.Name != "" {
+      byKernel[entry.Name] = entry
+    }
+    if entry.Path != "" {
+      byPath[entry.Path] = entry
+    }
+    if entry.KernelName != "" {
+      byPath["/dev/"+entry.KernelName] = entry
+    }
+  }
+  grouped := make(map[string][]DiskPartition)
+  for _, item := range usage {
+    resolvedDevice := resolveDevicePath(item.Device)
+    diskPath := rootDiskPath(resolvedDevice, byKernel, byPath)
+    if diskPath == "" && resolvedDevice != item.Device {
+      diskPath = rootDiskPath(item.Device, byKernel, byPath)
+    }
+    if diskPath == "" {
+      continue
+    }
+    grouped[diskPath] = append(grouped[diskPath], DiskPartition{
+      Device: item.Device,
+      Mount: item.Mount,
+      TotalGB: item.TotalGB,
+      UsedGB: item.UsedGB,
+      UsedPercent: item.UsedPercent,
+    })
+  }
+  return grouped
+}
+
+func resolveDevicePath(devicePath string) string {
+  if devicePath == "" || !strings.HasPrefix(devicePath, "/dev/") {
+    return devicePath
+  }
+  resolved, err := filepath.EvalSymlinks(devicePath)
+  if err != nil || resolved == "" {
+    return devicePath
+  }
+  return resolved
+}
+
+func rootDiskPath(devicePath string, byKernel map[string]blockDeviceEntry, byPath map[string]blockDeviceEntry) string {
+  if devicePath == "" {
+    return ""
+  }
+  if entry, ok := byPath[devicePath]; ok {
+    if root, ok := resolveRootDisk(entry, byKernel); ok {
+      if root.Path != "" {
+        return root.Path
+      }
+      if root.Name != "" {
+        return "/dev/" + root.Name
+      }
+    }
+  }
+  name := strings.TrimPrefix(devicePath, "/dev/")
+  if entry, ok := byKernel[name]; ok {
+    if root, ok := resolveRootDisk(entry, byKernel); ok {
+      if root.Path != "" {
+        return root.Path
+      }
+      if root.Name != "" {
+        return "/dev/" + root.Name
+      }
+    }
+  }
+  if strings.HasPrefix(devicePath, "/dev/") {
+    return baseDiskPath(devicePath)
+  }
+  return ""
+}
+
+func resolveRootDisk(entry blockDeviceEntry, byKernel map[string]blockDeviceEntry) (blockDeviceEntry, bool) {
+  current := entry
+  for i := 0; i < 12; i++ {
+    if current.Type == "disk" {
+      return current, true
+    }
+    if current.Parent == "" {
+      break
+    }
+    parent, ok := byKernel[current.Parent]
+    if !ok {
+      break
+    }
+    current = parent
+  }
+  return blockDeviceEntry{}, false
+}
+
+func baseDiskPath(devicePath string) string {
+  name := strings.TrimPrefix(devicePath, "/dev/")
+  switch {
+  case strings.HasPrefix(name, "nvme") && strings.Contains(name, "p"):
+    if idx := strings.LastIndex(name, "p"); idx > 0 {
+      return "/dev/" + name[:idx]
+    }
+  case strings.HasPrefix(name, "mmcblk") && strings.Contains(name, "p"):
+    if idx := strings.LastIndex(name, "p"); idx > 0 {
+      return "/dev/" + name[:idx]
+    }
+  default:
+    for i := len(name) - 1; i >= 0; i-- {
+      if name[i] < '0' || name[i] > '9' {
+        return "/dev/" + name[:i+1]
+      }
+    }
+  }
+  return devicePath
+}
+
+func sumPartitionUsage(parts []DiskPartition) (float64, float64) {
+  var total float64
+  var used float64
+  for _, part := range parts {
+    if part.TotalGB <= 0 || part.UsedGB < 0 {
+      continue
+    }
+    total += part.TotalGB
+    used += part.UsedGB
+  }
+  return total, used
 }
 
 func smartctlDevice(ctx context.Context, device string) (DiskSmart, error) {

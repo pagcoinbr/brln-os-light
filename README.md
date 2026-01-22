@@ -4,6 +4,7 @@ LightningOS Light is a Full Lightning Node Daemon Installer, Lightning node mana
 <img width="1494" height="1045" alt="image" src="https://github.com/user-attachments/assets/8fb801c0-4946-48d8-8c24-c36a53d193b3" />
 <img width="1491" height="903" alt="image" src="https://github.com/user-attachments/assets/cfda34d5-bccc-4b18-9970-bad494ae77b3" />
 <img width="1576" height="1337" alt="image" src="https://github.com/user-attachments/assets/019cfff2-f354-4c2b-a595-2a15bb228864" />
+<img width="1280" height="660" alt="image" src="https://github.com/user-attachments/assets/84489b07-8397-4195-b0d4-7e332618666d" />
 
 
 ## Highlights
@@ -13,8 +14,10 @@ LightningOS Light is a Full Lightning Node Daemon Installer, Lightning node mana
 - Seed phrase is never persisted or logged
 - Wizard for Bitcoin RPC credentials and wallet setup
 - Lightning Ops: peers, channels, and fee updates
+- Keysend Chat: 1 sat per message + routing fees, unread indicators, 30-day retention
 - Real-time notifications (on-chain, Lightning, channels, forwards, rebalances)
 - Optional Telegram SCB backup on channel open/close
+- App Store: LNDg, Peerswap (psweb), Elements, Bitcoin Core
 - Bitcoin Local management (status + config) and logs viewer
 
 ## Repository layout
@@ -37,7 +40,7 @@ The installer provisions everything needed on a clean Ubuntu box:
 
 Usage:
 ```bash
-git clone <REPO_URL>
+git clone https://github.com/jvxis/brln-os-light
 cd brln-os-light/lightningos-light
 sudo ./install.sh
 ```
@@ -86,6 +89,12 @@ LightningOS Light includes a real-time notifications system that tracks:
 - Forwards and rebalances
 
 Notifications are stored in a dedicated Postgres DB (see `NOTIFICATIONS_PG_DSN` in `/etc/lightningos/secrets.env`).
+
+## Chat (Keysend)
+Keysend chat is available in the UI and targets only online peers.
+- Every message sends 1 sat + routing fees.
+- Messages are stored locally in `/var/lib/lightningos/chat/messages.jsonl` and retained for 30 days.
+- Unread peers are highlighted until their chat is opened.
 
 Optional Telegram SCB backup:
 - When configured, every channel open/close triggers `ExportAllChannelBackups` and sends the SCB to Telegram.
@@ -158,8 +167,13 @@ journalctl -u lightningos-manager -n 200 --no-pager
 ss -ltn | grep :8443
 ```
 
-### App Store (LNDg)
+### App Store (LNDg, Peerswap, Elements, Bitcoin Core)
 - LNDg runs in Docker and listens on `http://<SERVER_LAN_IP>:8889`.
+- Peerswap installs `peerswapd` + `psweb` (UI on `http://<SERVER_LAN_IP>:1984`) and requires Elements.
+- Elements runs as a native service (Liquid Elements node, RPC on `127.0.0.1:7041`).
+- Bitcoin Core runs via Docker with data in `/data/bitcoin`.
+
+LNDg notes:
 - The LNDg logs page reads `/var/log/lndg-controller.log` inside the container. If it is empty, check `docker logs lndg-lndg-1`.
 - If you see `Is a directory: /var/log/lndg-controller.log`, remove `/var/lib/lightningos/apps-data/lndg/data/lndg-controller.log` on the host and restart LNDg.
 - If LND is using Postgres, LNDg may log `channel.db` missing. This is expected and harmless.

@@ -925,25 +925,23 @@ password = os.environ.get("LNDG_ADMIN_PASSWORD", "")
 if not password:
   raise SystemExit("LNDG_ADMIN_PASSWORD is required")
 
-  User = get_user_model()
-  user, created = User.objects.get_or_create(username=username, defaults={"email": "admin@lndg.local"})
-  updated = False
-  if created:
-    user.is_staff = True
-    user.is_superuser = True
-    updated = True
-  else:
-    if not user.is_staff:
-      user.is_staff = True
-      updated = True
-    if not user.is_superuser:
-      user.is_superuser = True
-      updated = True
-  if not user.check_password(password):
-    user.set_password(password)
-    updated = True
-  if updated:
-    user.save()
+User = get_user_model()
+user, created = User.objects.get_or_create(username=username, defaults={"email": "admin@lndg.local"})
+updated = False
+if created:
+  user.set_password(password)
+  updated = True
+if not user.is_staff:
+  user.is_staff = True
+  updated = True
+if not user.is_superuser:
+  user.is_superuser = True
+  updated = True
+if not user.has_usable_password():
+  user.set_password(password)
+  updated = True
+if updated:
+  user.save()
 PY
 
 if [ ! -f "$ADMIN_FILE" ]; then

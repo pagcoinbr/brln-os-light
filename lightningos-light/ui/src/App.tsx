@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import Sidebar from './components/Sidebar'
 import Topbar from './components/Topbar'
 import Dashboard from './pages/Dashboard'
@@ -6,6 +7,7 @@ import Reports from './pages/Reports'
 import Wizard from './pages/Wizard'
 import Wallet from './pages/Wallet'
 import LightningOps from './pages/LightningOps'
+import Chat from './pages/Chat'
 import Disks from './pages/Disks'
 import Logs from './pages/Logs'
 import BitcoinRemote from './pages/BitcoinRemote'
@@ -35,11 +37,23 @@ type RouteItem = {
   element: JSX.Element
 }
 
+type ThemeMode = 'dark' | 'light'
+
 export default function App() {
+  const { t, i18n } = useTranslation()
   const route = useHashRoute()
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const stored = window.localStorage.getItem('los-theme')
+    return stored === 'light' ? 'light' : 'dark'
+  })
   const [walletUnlocked, setWalletUnlocked] = useState<boolean | null>(null)
   const [walletExists, setWalletExists] = useState<boolean | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    window.localStorage.setItem('los-theme', theme)
+  }, [theme])
 
   useEffect(() => {
     let active = true
@@ -75,25 +89,26 @@ export default function App() {
   const routes = useMemo(() => {
     const list: RouteItem[] = []
     if (!wizardHidden) {
-      list.push({ key: 'wizard', label: 'Wizard', element: <Wizard /> })
+      list.push({ key: 'wizard', label: t('nav.wizard'), element: <Wizard /> })
     }
     list.push(
-      { key: 'dashboard', label: 'Dashboard', element: <Dashboard /> },
-      { key: 'reports', label: 'Reports', element: <Reports /> },
-      { key: 'wallet', label: 'Wallet', element: <Wallet /> },
-      { key: 'lightning-ops', label: 'Lightning Ops', element: <LightningOps /> },
-      { key: 'lnd', label: 'LND Config', element: <LndConfig /> },
-      { key: 'apps', label: 'Apps', element: <AppStore /> },
-      { key: 'bitcoin', label: 'Bitcoin Remote', element: <BitcoinRemote /> },
-      { key: 'bitcoin-local', label: 'Bitcoin Local', element: <BitcoinLocal /> },
-      { key: 'elements', label: 'Elements', element: <Elements /> },
-      { key: 'notifications', label: 'Notifications', element: <Notifications /> },
-      { key: 'disks', label: 'Disks', element: <Disks /> },
-      { key: 'terminal', label: 'Terminal', element: <Terminal /> },
-      { key: 'logs', label: 'Logs', element: <Logs /> }
+      { key: 'dashboard', label: t('nav.dashboard'), element: <Dashboard /> },
+      { key: 'reports', label: t('nav.reports'), element: <Reports /> },
+      { key: 'wallet', label: t('nav.wallet'), element: <Wallet /> },
+      { key: 'lightning-ops', label: t('nav.lightningOps'), element: <LightningOps /> },
+      { key: 'chat', label: t('nav.chat'), element: <Chat /> },
+      { key: 'lnd', label: t('nav.lndConfig'), element: <LndConfig /> },
+      { key: 'apps', label: t('nav.apps'), element: <AppStore /> },
+      { key: 'bitcoin', label: t('nav.bitcoinRemote'), element: <BitcoinRemote /> },
+      { key: 'bitcoin-local', label: t('nav.bitcoinLocal'), element: <BitcoinLocal /> },
+      { key: 'elements', label: t('nav.elements'), element: <Elements /> },
+      { key: 'notifications', label: t('nav.notifications'), element: <Notifications /> },
+      { key: 'disks', label: t('nav.disks'), element: <Disks /> },
+      { key: 'terminal', label: t('nav.terminal'), element: <Terminal /> },
+      { key: 'logs', label: t('nav.logs'), element: <Logs /> }
     )
     return list
-  }, [wizardHidden])
+  }, [i18n.language, t, wizardHidden])
 
   useEffect(() => {
     setMenuOpen(false)
@@ -139,7 +154,12 @@ export default function App() {
       <div className="min-h-screen flex flex-col lg:flex-row text-fog">
         <Sidebar routes={routes} current={current.key} open={menuOpen} onClose={() => setMenuOpen(false)} />
         <div className="flex-1 flex flex-col">
-          <Topbar onMenuToggle={() => setMenuOpen((prev) => !prev)} menuOpen={menuOpen} />
+          <Topbar
+            onMenuToggle={() => setMenuOpen((prev) => !prev)}
+            menuOpen={menuOpen}
+            theme={theme}
+            onThemeToggle={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+          />
           <main className="px-6 pb-16 pt-6 lg:px-12">
             {current.element}
           </main>

@@ -185,6 +185,14 @@ func lndRPCErrorMessage(err error) string {
   return msg
 }
 
+func lndDetailedErrorMessage(err error) string {
+  msg := lndRPCErrorMessage(err)
+  if msg == "" || msg == "LND error" {
+    return lndStatusMessage(err)
+  }
+  return msg
+}
+
 func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
   ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
   defer cancel()
@@ -916,7 +924,7 @@ func (s *Server) handleLNChannels(w http.ResponseWriter, r *http.Request) {
 
   channels, err := s.lnd.ListChannels(ctx)
   if err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -961,7 +969,7 @@ func (s *Server) handleLNPeers(w http.ResponseWriter, r *http.Request) {
 
   peers, err := s.lnd.ListPeers(ctx)
   if err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -1030,7 +1038,7 @@ func (s *Server) handleLNDisconnectPeer(w http.ResponseWriter, r *http.Request) 
   defer cancel()
 
   if err := s.lnd.DisconnectPeer(ctx, pubkey); err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -1056,7 +1064,7 @@ func (s *Server) handleLNBoostPeers(w http.ResponseWriter, r *http.Request) {
   peers, err := s.lnd.ListPeers(peersCtx)
   peersCancel()
   if err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -1316,7 +1324,7 @@ func (s *Server) handleLNOpenChannel(w http.ResponseWriter, r *http.Request) {
 
   channelPoint, err := s.lnd.OpenChannel(ctx, pubkey, req.LocalFundingSat, req.CloseAddress, req.Private, req.SatPerVbyte)
   if err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -1340,6 +1348,7 @@ func (s *Server) handleLNCloseChannel(w http.ResponseWriter, r *http.Request) {
   var req struct {
     ChannelPoint string `json:"channel_point"`
     Force bool `json:"force"`
+    SatPerVbyte int64 `json:"sat_per_vbyte"`
   }
   if err := readJSON(r, &req); err != nil {
     writeError(w, http.StatusBadRequest, "invalid json")
@@ -1353,8 +1362,13 @@ func (s *Server) handleLNCloseChannel(w http.ResponseWriter, r *http.Request) {
   ctx, cancel := context.WithTimeout(r.Context(), lndRPCTimeout)
   defer cancel()
 
-  if err := s.lnd.CloseChannel(ctx, req.ChannelPoint, req.Force); err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+  if req.SatPerVbyte < 0 {
+    writeError(w, http.StatusBadRequest, "sat_per_vbyte must be zero or positive")
+    return
+  }
+
+  if err := s.lnd.CloseChannel(ctx, req.ChannelPoint, req.Force, req.SatPerVbyte); err != nil {
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -1423,7 +1437,7 @@ func (s *Server) handleLNChannelFees(w http.ResponseWriter, r *http.Request) {
 
   policy, err := s.lnd.GetChannelPolicy(ctx, channelPoint)
   if err != nil {
-    writeError(w, http.StatusInternalServerError, lndStatusMessage(err))
+    writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
     return
   }
 
@@ -1435,6 +1449,93 @@ func (s *Server) handleLNChannelFees(w http.ResponseWriter, r *http.Request) {
     "inbound_base_msat": policy.InboundBaseMsat,
     "inbound_fee_rate_ppm": policy.InboundFeeRatePpm,
   })
+}
+
+func (s *Server) handleChatMessages(w http.ResponseWriter, r *http.Request) {
+  if s.chat == nil {
+    writeError(w, http.StatusServiceUnavailable, "chat unavailable")
+    return
+  }
+  peerPubkey := strings.TrimSpace(r.URL.Query().Get("peer_pubkey"))
+  if peerPubkey == "" {
+    writeError(w, http.StatusBadRequest, "peer_pubkey required")
+    return
+  }
+  if !isValidPubkeyHex(peerPubkey) {
+    writeError(w, http.StatusBadRequest, "invalid peer_pubkey")
+    return
+  }
+  limit := chatMessageLimitDefault
+  if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+    if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+      limit = parsed
+    }
+  }
+  items, err := s.chat.Messages(peerPubkey, limit)
+  if err != nil {
+    writeError(w, http.StatusInternalServerError, "failed to load chat messages")
+    return
+  }
+  writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) handleChatInbox(w http.ResponseWriter, r *http.Request) {
+  if s.chat == nil {
+    writeError(w, http.StatusServiceUnavailable, "chat unavailable")
+    return
+  }
+  items, err := s.chat.Inbox()
+  if err != nil {
+    writeError(w, http.StatusInternalServerError, "failed to load chat inbox")
+    return
+  }
+  writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) handleChatSend(w http.ResponseWriter, r *http.Request) {
+  if s.chat == nil {
+    writeError(w, http.StatusServiceUnavailable, "chat unavailable")
+    return
+  }
+  var req struct {
+    PeerPubkey string `json:"peer_pubkey"`
+    Message string `json:"message"`
+  }
+  if err := readJSON(r, &req); err != nil {
+    writeError(w, http.StatusBadRequest, "invalid json")
+    return
+  }
+  peerPubkey := strings.TrimSpace(req.PeerPubkey)
+  if peerPubkey == "" {
+    writeError(w, http.StatusBadRequest, "peer_pubkey required")
+    return
+  }
+  if !isValidPubkeyHex(peerPubkey) {
+    writeError(w, http.StatusBadRequest, "invalid peer_pubkey")
+    return
+  }
+  message := strings.TrimSpace(req.Message)
+  if err := validateChatMessage(message); err != nil {
+    writeError(w, http.StatusBadRequest, err.Error())
+    return
+  }
+
+  ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+  defer cancel()
+
+  msg, err := s.chat.SendMessage(ctx, peerPubkey, message)
+  if err != nil {
+    detail := lndRPCErrorMessage(err)
+    if isTimeoutError(err) {
+      detail = lndStatusMessage(err)
+    }
+    if detail == "" || detail == "LND error" {
+      detail = "Keysend failed"
+    }
+    writeError(w, http.StatusInternalServerError, detail)
+    return
+  }
+  writeJSON(w, http.StatusOK, msg)
 }
 
 type lndUserConf struct {
@@ -1824,6 +1925,9 @@ func (s *Server) handleWalletDecode(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleWalletPay(w http.ResponseWriter, r *http.Request) {
   var req struct {
     PaymentRequest string `json:"payment_request"`
+    ChannelPoint string `json:"channel_point"`
+    AmountSat int64 `json:"amount_sat"`
+    Comment string `json:"comment"`
   }
   if err := readJSON(r, &req); err != nil {
     writeError(w, http.StatusBadRequest, "invalid json")
@@ -1834,16 +1938,54 @@ func (s *Server) handleWalletPay(w http.ResponseWriter, r *http.Request) {
     writeError(w, http.StatusBadRequest, "payment_request required")
     return
   }
+  cleaned := strings.TrimSpace(paymentRequest)
+  if strings.HasPrefix(strings.ToLower(cleaned), "lightning:") {
+    cleaned = cleaned[len("lightning:"):]
+  }
+  if isLightningAddress(cleaned) {
+    if req.AmountSat <= 0 {
+      writeError(w, http.StatusBadRequest, "amount_sat must be positive for lightning address")
+      return
+    }
+    resolved, err := resolveLightningAddress(r.Context(), cleaned, req.AmountSat, req.Comment)
+    if err != nil {
+      writeError(w, http.StatusBadRequest, fmt.Sprintf("lightning address error: %v", err))
+      return
+    }
+    paymentRequest = resolved
+  } else {
+    paymentRequest = cleaned
+  }
 
   ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
   defer cancel()
+
+  outgoingChanID := uint64(0)
+  selectedPoint := strings.ToLower(strings.TrimSpace(req.ChannelPoint))
+  if selectedPoint != "" {
+    channels, err := s.lnd.ListChannels(ctx)
+    if err != nil {
+      writeError(w, http.StatusInternalServerError, lndDetailedErrorMessage(err))
+      return
+    }
+    for _, ch := range channels {
+      if strings.ToLower(strings.TrimSpace(ch.ChannelPoint)) == selectedPoint {
+        outgoingChanID = ch.ChannelID
+        break
+      }
+    }
+    if outgoingChanID == 0 {
+      writeError(w, http.StatusBadRequest, "selected channel not found")
+      return
+    }
+  }
 
   paymentHash := ""
   if decoded, err := s.lnd.DecodeInvoice(ctx, paymentRequest); err == nil {
     paymentHash = decoded.PaymentHash
   }
 
-  if err := s.lnd.PayInvoice(ctx, paymentRequest); err != nil {
+  if err := s.lnd.PayInvoice(ctx, paymentRequest, outgoingChanID); err != nil {
     if paymentHash != "" {
       s.recordWalletActivity(paymentHash)
     }
@@ -1870,6 +2012,7 @@ func (s *Server) handleWalletSend(w http.ResponseWriter, r *http.Request) {
     Address string `json:"address"`
     AmountSat int64 `json:"amount_sat"`
     SatPerVbyte int64 `json:"sat_per_vbyte"`
+    SweepAll bool `json:"sweep_all"`
   }
   if err := readJSON(r, &req); err != nil {
     writeError(w, http.StatusBadRequest, "invalid json")
@@ -1880,15 +2023,18 @@ func (s *Server) handleWalletSend(w http.ResponseWriter, r *http.Request) {
     writeError(w, http.StatusBadRequest, "address required")
     return
   }
-  if req.AmountSat <= 0 {
+  if !req.SweepAll && req.AmountSat <= 0 {
     writeError(w, http.StatusBadRequest, "amount_sat must be positive")
     return
+  }
+  if req.SweepAll {
+    req.AmountSat = 0
   }
 
   ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
   defer cancel()
 
-  txid, err := s.lnd.SendCoins(ctx, address, req.AmountSat, req.SatPerVbyte)
+  txid, err := s.lnd.SendCoins(ctx, address, req.AmountSat, req.SatPerVbyte, req.SweepAll)
   if err != nil {
     msg := lndRPCErrorMessage(err)
     if isTimeoutError(err) {

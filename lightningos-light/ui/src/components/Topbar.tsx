@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { getHealth, getLndConfig, getLndStatus } from '../api'
+import { setLanguage } from '../i18n'
 
 const statusColors: Record<string, string> = {
   OK: 'bg-glow/20 text-glow border-glow/40',
@@ -10,13 +12,17 @@ const statusColors: Record<string, string> = {
 type TopbarProps = {
   onMenuToggle?: () => void
   menuOpen?: boolean
+  theme: 'dark' | 'light'
+  onThemeToggle: () => void
 }
 
-export default function Topbar({ onMenuToggle, menuOpen }: TopbarProps) {
+export default function Topbar({ onMenuToggle, menuOpen, theme, onThemeToggle }: TopbarProps) {
+  const { t, i18n } = useTranslation()
   const [status, setStatus] = useState('...')
   const [issues, setIssues] = useState<Array<{ component?: string; level?: string; message?: string }>>([])
   const [nodeAlias, setNodeAlias] = useState('')
   const [nodePubkey, setNodePubkey] = useState('')
+  const isPortuguese = i18n.language === 'pt-BR'
 
   useEffect(() => {
     let mounted = true
@@ -29,7 +35,7 @@ export default function Topbar({ onMenuToggle, menuOpen }: TopbarProps) {
       } catch {
         if (!mounted) return
         setStatus('ERR')
-        setIssues([{ component: 'system', level: 'ERR', message: 'Health check failed' }])
+        setIssues([{ component: 'system', level: 'ERR', message: t('topbar.healthCheckFailed') }])
       }
     }
 
@@ -78,7 +84,7 @@ export default function Topbar({ onMenuToggle, menuOpen }: TopbarProps) {
             type="button"
             className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-ink/60 px-3 py-2 text-xs uppercase tracking-wide text-fog/70 hover:text-white hover:border-white/40 transition"
             onClick={onMenuToggle}
-            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-label={menuOpen ? t('topbar.closeMenu') : t('topbar.openMenu')}
             aria-expanded={menuOpen ? true : false}
             aria-controls="app-sidebar"
           >
@@ -91,21 +97,21 @@ export default function Topbar({ onMenuToggle, menuOpen }: TopbarProps) {
                 <path d="M4 7h16M4 12h16M4 17h10" />
               </svg>
             )}
-            <span>{menuOpen ? 'Close' : 'Menu'}</span>
+            <span>{menuOpen ? t('common.close') : t('common.menu')}</span>
           </button>
           <div className="text-right text-xs text-fog/60">
-            <p className="text-fog font-semibold">LightningOS Light</p>
-            <p>Mainnet only</p>
+            <p className="text-fog font-semibold">{t('topbar.productName')}</p>
+            <p>{t('topbar.mainnetOnly')}</p>
           </div>
         </div>
       )}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <p className="text-sm uppercase tracking-[0.3em] text-fog/50">Status overview</p>
-          <h1 className="text-3xl lg:text-4xl font-semibold">LightningOS Control Center</h1>
+          <p className="text-sm uppercase tracking-[0.3em] text-fog/50">{t('topbar.statusOverview')}</p>
+          <h1 className="text-3xl lg:text-4xl font-semibold">{t('topbar.controlCenter')}</h1>
           {displayNodeLabel && (
             <p className="mt-2 text-sm text-fog/60" title={resolvedNodeLabel}>
-              Node: {displayNodeLabel}
+              {t('topbar.nodeLabel', { node: displayNodeLabel })}
             </p>
           )}
         </div>
@@ -117,17 +123,49 @@ export default function Topbar({ onMenuToggle, menuOpen }: TopbarProps) {
             {issues.length
               ? issues
                 .map((issue) => {
-                  const label = issue.component ? issue.component.toUpperCase() : 'SYSTEM'
-                  const message = issue.message || 'Issue detected'
+                  const label = issue.component ? issue.component.toUpperCase() : t('topbar.systemLabel')
+                  const message = issue.message || t('topbar.issueDetected')
                   return `${label}: ${message}`
                 })
                 .join(' • ')
               : status === '...'
-                ? 'Checking system status...'
+                ? t('topbar.checkingStatus')
                 : status === 'OK'
-                  ? 'All systems green'
-                  : 'Status unavailable'}
+                  ? t('topbar.allSystemsGreen')
+                  : t('topbar.statusUnavailable')}
           </div>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-ink/60 px-3 py-2 text-xs uppercase tracking-wide text-fog/70 hover:text-white hover:border-white/40 transition"
+            onClick={() => setLanguage(isPortuguese ? 'en' : 'pt-BR')}
+            aria-label={t('topbar.toggleLanguage')}
+            title={t('topbar.toggleLanguage')}
+          >
+            <span className={isPortuguese ? 'text-fog/50' : 'text-white'}>EN</span>
+            <span className="text-fog/40">|</span>
+            <span className={isPortuguese ? 'text-white' : 'text-fog/50'}>PT</span>
+          </button>
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={onThemeToggle}
+            aria-label={theme === 'dark' ? t('topbar.switchToLight') : t('topbar.switchToDark')}
+            aria-pressed={theme === 'light'}
+            title={theme === 'dark' ? t('topbar.switchToLight') : t('topbar.switchToDark')}
+          >
+            <span className="theme-toggle__icon theme-toggle__icon--moon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5Z" />
+              </svg>
+            </span>
+            <span className="theme-toggle__icon theme-toggle__icon--sun">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v3M12 19v3M4.5 4.5l2.1 2.1M17.4 17.4l2.1 2.1M2 12h3M19 12h3M4.5 19.5l2.1-2.1M17.4 6.6l2.1-2.1" />
+              </svg>
+            </span>
+            <span className="theme-toggle__thumb" />
+          </button>
         </div>
       </div>
       <div className="glow-divider mt-6" />

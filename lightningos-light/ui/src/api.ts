@@ -84,13 +84,13 @@ export const getMempoolFees = () => request('/api/mempool/fees')
 
 export const getWalletSummary = () => request('/api/wallet/summary')
 export const getWalletAddress = () => request('/api/wallet/address', { method: 'POST' })
-export const sendOnchain = (payload: { address: string; amount_sat: number; sat_per_vbyte?: number }) =>
+export const sendOnchain = (payload: { address: string; amount_sat?: number; sat_per_vbyte?: number; sweep_all?: boolean }) =>
   request('/api/wallet/send', { method: 'POST', body: JSON.stringify(payload) })
 export const createInvoice = (payload: { amount_sat: number; memo: string }) =>
   request('/api/wallet/invoice', { method: 'POST', body: JSON.stringify(payload) })
 export const decodeInvoice = (payload: { payment_request: string }) =>
   request('/api/wallet/decode', { method: 'POST', body: JSON.stringify(payload) })
-export const payInvoice = (payload: { payment_request: string }) =>
+export const payInvoice = (payload: { payment_request: string; channel_point?: string; amount_sat?: number }) =>
   request('/api/wallet/pay', { method: 'POST', body: JSON.stringify(payload) })
 
 export const getLnChannels = () => request('/api/lnops/channels')
@@ -110,7 +110,7 @@ export const openChannel = (payload: {
   sat_per_vbyte?: number
   private?: boolean
 }) => request('/api/lnops/channel/open', { method: 'POST', body: JSON.stringify(payload) })
-export const closeChannel = (payload: { channel_point: string; force?: boolean }) =>
+export const closeChannel = (payload: { channel_point: string; force?: boolean; sat_per_vbyte?: number }) =>
   request('/api/lnops/channel/close', { method: 'POST', body: JSON.stringify(payload) })
 export const updateChannelFees = (payload: {
   channel_point?: string
@@ -122,6 +122,15 @@ export const updateChannelFees = (payload: {
   inbound_base_msat?: number
   inbound_fee_rate_ppm?: number
 }) => request('/api/lnops/channel/fees', { method: 'POST', body: JSON.stringify(payload) })
+
+export const getChatMessages = (peerPubkey: string, limit = 200) =>
+  request(`/api/chat/messages?peer_pubkey=${encodeURIComponent(peerPubkey)}&limit=${limit}`)
+
+export const getChatInbox = () =>
+  request('/api/chat/inbox')
+
+export const sendChatMessage = (payload: { peer_pubkey: string; message: string }) =>
+  request('/api/chat/send', { method: 'POST', body: JSON.stringify(payload) })
 
 export const getNotifications = (limit = 200) =>
   request(`/api/notifications?limit=${limit}`)

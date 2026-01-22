@@ -524,7 +524,7 @@ func (c *Client) NewAddress(ctx context.Context) (string, error) {
   return resp.Address, nil
 }
 
-func (c *Client) PayInvoice(ctx context.Context, paymentRequest string) error {
+func (c *Client) PayInvoice(ctx context.Context, paymentRequest string, outgoingChanID uint64) error {
   conn, err := c.dial(ctx, true)
   if err != nil {
     return err
@@ -533,11 +533,15 @@ func (c *Client) PayInvoice(ctx context.Context, paymentRequest string) error {
 
   client := lnrpc.NewLightningClient(conn)
 
-  _, err = client.SendPaymentSync(ctx, &lnrpc.SendRequest{PaymentRequest: paymentRequest})
+  req := &lnrpc.SendRequest{PaymentRequest: paymentRequest}
+  if outgoingChanID > 0 {
+    req.OutgoingChanId = outgoingChanID
+  }
+  _, err = client.SendPaymentSync(ctx, req)
   return err
 }
 
-func (c *Client) SendCoins(ctx context.Context, address string, amountSat int64, satPerVbyte int64) (string, error) {
+func (c *Client) SendCoins(ctx context.Context, address string, amountSat int64, satPerVbyte int64, sendAll bool) (string, error) {
   conn, err := c.dial(ctx, true)
   if err != nil {
     return "", err
@@ -548,7 +552,10 @@ func (c *Client) SendCoins(ctx context.Context, address string, amountSat int64,
 
   req := &lnrpc.SendCoinsRequest{
     Addr: address,
-    Amount: amountSat,
+    SendAll: sendAll,
+  }
+  if !sendAll {
+    req.Amount = amountSat
   }
   if satPerVbyte > 0 {
     req.SatPerVbyte = uint64(satPerVbyte)
@@ -966,7 +973,7 @@ func (c *Client) OpenChannel(ctx context.Context, pubkeyHex string, localFunding
   return channelPointString(resp), nil
 }
 
-func (c *Client) CloseChannel(ctx context.Context, channelPoint string, force bool) error {
+func (c *Client) CloseChannel(ctx context.Context, channelPoint string, force bool, satPerVbyte int64) error {
   cp, err := parseChannelPoint(channelPoint)
   if err != nil {
     return err
@@ -979,11 +986,15 @@ func (c *Client) CloseChannel(ctx context.Context, channelPoint string, force bo
   defer conn.Close()
 
   client := lnrpc.NewLightningClient(conn)
-  stream, err := client.CloseChannel(ctx, &lnrpc.CloseChannelRequest{
+  req := &lnrpc.CloseChannelRequest{
     ChannelPoint: cp,
     Force: force,
     NoWait: true,
-  })
+  }
+  if satPerVbyte > 0 {
+    req.SatPerVbyte = uint64(satPerVbyte)
+  }
+  stream, err := client.CloseChannel(ctx, req)
   if err != nil {
     return err
   }
