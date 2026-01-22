@@ -5,6 +5,7 @@ import (
   "bytes"
   "context"
   "os/exec"
+  "path/filepath"
   "strconv"
   "strings"
 )
@@ -203,7 +204,11 @@ func groupDiskUsage(usage []diskUsageEntry, entries []blockDeviceEntry) map[stri
   }
   grouped := make(map[string][]DiskPartition)
   for _, item := range usage {
-    diskPath := rootDiskPath(item.Device, byName, byPath)
+    resolvedDevice := resolveDevicePath(item.Device)
+    diskPath := rootDiskPath(resolvedDevice, byName, byPath)
+    if diskPath == "" && resolvedDevice != item.Device {
+      diskPath = rootDiskPath(item.Device, byName, byPath)
+    }
     if diskPath == "" {
       continue
     }
@@ -216,6 +221,17 @@ func groupDiskUsage(usage []diskUsageEntry, entries []blockDeviceEntry) map[stri
     })
   }
   return grouped
+}
+
+func resolveDevicePath(devicePath string) string {
+  if devicePath == "" || !strings.HasPrefix(devicePath, "/dev/") {
+    return devicePath
+  }
+  resolved, err := filepath.EvalSymlinks(devicePath)
+  if err != nil || resolved == "" {
+    return devicePath
+  }
+  return resolved
 }
 
 func rootDiskPath(devicePath string, byName map[string]blockDeviceEntry, byPath map[string]blockDeviceEntry) string {
