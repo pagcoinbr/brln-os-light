@@ -11,6 +11,12 @@
 - admin user has symlinks /home/admin/.lnd -> /data/lnd and /home/admin/.bitcoin -> /data/bitcoin.
 - Alternative: dedicated lnd and bitcoin users with data in /data, and admin in lnd and bitcoin groups.
 
+## Clone repository
+```bash
+git clone https://github.com/jvxis/brln-os-light
+cd brln-os-light/lightningos-light
+```
+
 ## Important about /data/lnd
 - LightningOS uses fixed paths for lnd.conf and wallet.db in /data/lnd.
 - If LND is not in /data/lnd, the lnd.conf editor and auto-unlock will not work.
@@ -87,7 +93,7 @@ sudo ${EDITOR:-nano} /etc/lightningos/config.yaml
 - bitcoin_remote.rpchost: "127.0.0.1:8332"
 - bitcoin_remote.zmq_rawblock: "tcp://127.0.0.1:28332"
 - bitcoin_remote.zmq_rawtx: "tcp://127.0.0.1:28333"
-- postgres.db_name: "lnd" (LND on Postgres) or "lightningos" (LND on Bolt/SQLite)
+- postgres.db_name: "lnd" (only if LND uses Postgres; if LND uses Bolt/SQLite, this field is not used)
 
 ## Secrets (credentials and DSNs)
 1) Copy the template:
@@ -161,7 +167,7 @@ sudo -u postgres psql -c "create database lightningos owner losapp;"
 - Leave LND_PG_DSN empty or remove it
 
 4) In config.yaml:
-- postgres.db_name: "lightningos"
+- postgres.db_name: "lnd" (keep the default; not used if LND does not use Postgres)
 
 ## Manager systemd unit
 1) Copy the unit and edit User/Group:
