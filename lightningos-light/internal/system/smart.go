@@ -17,6 +17,9 @@ type DiskSmart struct {
   DaysLeftEstimate int64 `json:"days_left_estimate"`
   SmartStatus string `json:"smart_status"`
   Alerts []string `json:"alerts"`
+  TotalGB float64 `json:"total_gb,omitempty"`
+  UsedGB float64 `json:"used_gb,omitempty"`
+  UsedPercent float64 `json:"used_percent,omitempty"`
 }
 
 func ReadDiskSmart(ctx context.Context) ([]DiskSmart, error) {
@@ -24,6 +27,8 @@ func ReadDiskSmart(ctx context.Context) ([]DiskSmart, error) {
   if err != nil {
     return nil, err
   }
+
+  usageEntries, _ := readDiskUsageEntries(ctx)
 
   out := make([]DiskSmart, 0, len(devices))
   for _, dev := range devices {
@@ -39,6 +44,11 @@ func ReadDiskSmart(ctx context.Context) ([]DiskSmart, error) {
     }
     if smart.Type == "" {
       smart.Type = guessDiskType(devicePath)
+    }
+    if usage, ok := selectDiskUsage(devicePath, usageEntries); ok {
+      smart.TotalGB = usage.TotalGB
+      smart.UsedGB = usage.UsedGB
+      smart.UsedPercent = usage.UsedPercent
     }
     out = append(out, smart)
   }
@@ -62,6 +72,63 @@ func listBlockDevices(ctx context.Context) ([]string, error) {
     }
   }
   return devices, nil
+}
+
+type diskUsageEntry struct {
+  Device string
+  TotalGB float64
+  UsedGB float64
+  UsedPercent float64
+}
+
+func readDiskUsageEntries(ctx context.Context) ([]diskUsageEntry, error) {
+  out, err := RunCommand(ctx, "df", "-B1", "-x", "tmpfs", "-x", "devtmpfs")
+  if err != nil {
+    return nil, err
+  }
+  var entries []diskUsageEntry
+  scanner := bufio.NewScanner(bytes.NewBufferString(out))
+  first := true
+  for scanner.Scan() {
+    line := scanner.Text()
+    if first {
+      first = false
+      continue
+    }
+    fields := strings.Fields(line)
+    if len(fields) < 6 {
+      continue
+    }
+    device := fields[0]
+    if !strings.HasPrefix(device, "/dev/") {
+      continue
+    }
+    totalBytes, _ := strconv.ParseFloat(fields[1], 64)
+    usedBytes, _ := strconv.ParseFloat(fields[2], 64)
+    usedPercent, _ := strconv.ParseFloat(strings.TrimSuffix(fields[4], "%"), 64)
+    entries = append(entries, diskUsageEntry{
+      Device: device,
+      TotalGB: totalBytes / (1024 * 1024 * 1024),
+      UsedGB: usedBytes / (1024 * 1024 * 1024),
+      UsedPercent: usedPercent,
+    })
+  }
+  return entries, nil
+}
+
+func selectDiskUsage(devicePath string, entries []diskUsageEntry) (diskUsageEntry, bool) {
+  var best diskUsageEntry
+  found := false
+  for _, entry := range entries {
+    if !strings.HasPrefix(entry.Device, devicePath) {
+      continue
+    }
+    if !found || entry.TotalGB > best.TotalGB {
+      best = entry
+      found = true
+    }
+  }
+  return best, found
 }
 
 func smartctlDevice(ctx context.Context, device string) (DiskSmart, error) {

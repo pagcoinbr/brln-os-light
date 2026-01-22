@@ -211,9 +211,12 @@
     "noAlerts": "No alerts.",
     "noData": "No disk data yet.",
     "powerOnHours": "Power on hours",
+    "size": "Size",
     "smartLabel": "SMART",
     "subtitle": "SMART data with lifespan estimation.",
     "title": "Disk health",
+    "used": "Used",
+    "usedValue": "{{used}} ({{percent}}%)",
     "wear": "Wear"
   },
   "logs": {
@@ -264,6 +267,7 @@
     "cpuLoad": "CPU load",
     "dbSize": "DB size",
     "disks": "Disks",
+    "diskUsageSummary": "Size {{total}} | Used {{used}} ({{percent}}%)",
     "graph": "graph",
     "graphCached": "graph cached",
     "graphPending": "graph pending",

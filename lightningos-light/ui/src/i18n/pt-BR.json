@@ -211,9 +211,12 @@
     "noAlerts": "Sem alertas.",
     "noData": "Sem dados de disco ainda.",
     "powerOnHours": "Power on hours",
+    "size": "Tamanho",
     "smartLabel": "SMART",
     "subtitle": "Dados SMART com estimativa de vida útil.",
     "title": "Saúde dos discos",
+    "used": "Uso",
+    "usedValue": "{{used}} ({{percent}}%)",
     "wear": "Desgaste"
   },
   "logs": {
@@ -264,6 +267,7 @@
     "cpuLoad": "CPU load",
     "dbSize": "Tamanho do DB",
     "disks": "Discos",
+    "diskUsageSummary": "Tamanho {{total}} | Uso {{used}} ({{percent}}%)",
     "graph": "grafo",
     "graphCached": "grafo em cache",
     "graphPending": "grafo pendente",

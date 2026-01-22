@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getBitcoinActive, getDisk, getLndStatus, getPostgres, getSystem, restartService } from '../api'
+import { getLocale } from '../i18n'
 
 export default function Dashboard() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = getLocale(i18n.language)
+  const gbFormatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 })
+  const percentFormatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 })
   const [system, setSystem] = useState<any>(null)
   const [disk, setDisk] = useState<any[]>([])
   const [bitcoin, setBitcoin] = useState<any>(null)
@@ -16,6 +20,16 @@ export default function Dashboard() {
       return t('common.na')
     }
     return `${(info.verification_progress * 100).toFixed(2)}%`
+  }
+
+  const formatGB = (value?: number) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return '-'
+    return `${gbFormatter.format(value)} GB`
+  }
+
+  const formatPercent = (value?: number) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return '-'
+    return percentFormatter.format(value)
   }
 
   const compactValue = (value: string, head = 10, tail = 10) => {
@@ -293,18 +307,25 @@ export default function Dashboard() {
         <h3 className="text-lg font-semibold">{t('dashboard.disks')}</h3>
         {disk.length ? (
           <div className="mt-4 grid gap-3">
-            {disk.map((item) => (
+            {disk.map((item) => {
+              const totalLabel = formatGB(item.total_gb)
+              const usedLabel = formatGB(item.used_gb)
+              const percentLabel = formatPercent(item.used_percent)
+              return (
               <div key={item.device} className="flex flex-col lg:flex-row lg:items-center lg:justify-between bg-ink/40 rounded-2xl p-4">
                 <div>
                   <p className="text-sm text-fog/70">{item.device} ({item.type})</p>
                   <p className="text-xs text-fog/50">{t('dashboard.powerOnHours', { count: item.power_on_hours })}</p>
+                  <p className="text-xs text-fog/50">
+                    {t('dashboard.diskUsageSummary', { total: totalLabel, used: usedLabel, percent: percentLabel })}
+                  </p>
                 </div>
                 <div className="text-sm text-fog/80">
                   {t('dashboard.wearDaysLeft', { wear: item.wear_percent_used, days: item.days_left_estimate })}
                 </div>
                 <div className="text-xs text-fog/60">{t('dashboard.smartLabel', { status: item.smart_status })}</div>
               </div>
-            ))}
+            )})}
           </div>
         ) : (
           <p className="text-fog/60 mt-4">{t('dashboard.noDiskData')}</p>
