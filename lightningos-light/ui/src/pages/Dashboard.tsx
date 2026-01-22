@@ -311,6 +311,7 @@ export default function Dashboard() {
               const totalLabel = formatGB(item.total_gb)
               const usedLabel = formatGB(item.used_gb)
               const percentLabel = formatPercent(item.used_percent)
+              const partitions = Array.isArray(item.partitions) ? item.partitions : []
               return (
               <div key={item.device} className="flex flex-col lg:flex-row lg:items-center lg:justify-between bg-ink/40 rounded-2xl p-4">
                 <div>
@@ -319,6 +320,23 @@ export default function Dashboard() {
                   <p className="text-xs text-fog/50">
                     {t('dashboard.diskUsageSummary', { total: totalLabel, used: usedLabel, percent: percentLabel })}
                   </p>
+                  {partitions.length > 0 && (
+                    <div className="mt-2 space-y-1 text-[11px] text-fog/50">
+                      {partitions.map((part: any) => {
+                        const partTotal = formatGB(part.total_gb)
+                        const partUsed = formatGB(part.used_gb)
+                        const partPercent = formatPercent(part.used_percent)
+                        return (
+                          <div key={part.device} className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-fog/70">{part.device}</span>
+                            {part.mount && <span className="text-fog/50">{part.mount}</span>}
+                            <span>{t('disks.size')}: {partTotal}</span>
+                            <span>{t('disks.used')}: {t('disks.usedValue', { used: partUsed, percent: partPercent })}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
                 <div className="text-sm text-fog/80">
                   {t('dashboard.wearDaysLeft', { wear: item.wear_percent_used, days: item.days_left_estimate })}

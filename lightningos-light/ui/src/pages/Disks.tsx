@@ -39,6 +39,7 @@ export default function Disks() {
             const totalLabel = formatGB(disk.total_gb)
             const usedLabel = formatGB(disk.used_gb)
             const percentLabel = formatPercent(disk.used_percent)
+            const partitions = Array.isArray(disk.partitions) ? disk.partitions : []
             return (
             <div key={disk.device} className="border border-white/10 rounded-2xl p-4">
               <div className="flex items-center justify-between">
@@ -74,6 +75,30 @@ export default function Disks() {
                 <p className="mt-2 text-xs text-ember">{t('disks.alerts', { alerts: disk.alerts.join(', ') })}</p>
               ) : (
                 <p className="mt-2 text-xs text-fog/50">{t('disks.noAlerts')}</p>
+              )}
+              {partitions.length > 0 && (
+                <div className="mt-3 border-t border-white/10 pt-3">
+                  <p className="text-xs uppercase tracking-wide text-fog/50">{t('disks.partitions')}</p>
+                  <div className="mt-2 space-y-2">
+                    {partitions.map((part: any) => {
+                      const partTotal = formatGB(part.total_gb)
+                      const partUsed = formatGB(part.used_gb)
+                      const partPercent = formatPercent(part.used_percent)
+                      return (
+                        <div key={part.device} className="flex flex-wrap items-center justify-between gap-2 text-xs text-fog/60">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-fog/70">{part.device}</span>
+                            {part.mount && <span className="text-fog/50">{part.mount}</span>}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span>{t('disks.size')}: {partTotal}</span>
+                            <span>{t('disks.used')}: {t('disks.usedValue', { used: partUsed, percent: partPercent })}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
               )}
             </div>
           )})
