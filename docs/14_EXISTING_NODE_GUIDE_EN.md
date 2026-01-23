@@ -95,6 +95,23 @@ sudo ${EDITOR:-nano} /etc/lightningos/config.yaml
 - bitcoin_remote.zmq_rawtx: "tcp://127.0.0.1:28333"
 - postgres.db_name: "lnd" (only if LND uses Postgres; if LND uses Bolt/SQLite, this field is not used)
 
+## Bitcoin RPC (local and remote)
+- LightningOS does not read bitcoin.conf automatically.
+- It uses credentials from /etc/lightningos/secrets.env (BITCOIN_RPC_USER/PASS).
+- For local Bitcoin, use the same values from bitcoin.conf (rpcuser/rpcpassword).
+- If you use rpcauth, you need the original username and password (the rpcauth hash alone is not enough) or create a dedicated rpcuser/rpcpassword entry.
+- If you use the club remote Bitcoin, you can keep bitcoin.br-ln.com:8085 and the template ZMQ values.
+
+Minimal bitcoin.conf example (local):
+```
+server=1
+rpcuser=rpc_user
+rpcpassword=rpc_pass
+rpcallowip=127.0.0.1
+zmqpubrawblock=tcp://127.0.0.1:28332
+zmqpubrawtx=tcp://127.0.0.1:28333
+```
+
 ## Secrets (credentials and DSNs)
 1) Copy the template:
 ```bash

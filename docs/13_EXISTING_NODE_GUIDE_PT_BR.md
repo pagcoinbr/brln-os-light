@@ -90,10 +90,27 @@ sudo ${EDITOR:-nano} /etc/lightningos/config.yaml
 - lnd.grpc_host: "127.0.0.1:10009"
 - lnd.tls_cert_path: "/data/lnd/tls.cert"
 - lnd.admin_macaroon_path: "/data/lnd/data/chain/bitcoin/mainnet/admin.macaroon"
-- bitcoin_remote.rpchost: "127.0.0.1:8332"
-- bitcoin_remote.zmq_rawblock: "tcp://127.0.0.1:28332"
-- bitcoin_remote.zmq_rawtx: "tcp://127.0.0.1:28333"
+- bitcoin_remote.rpchost: "bitcoin.br-ln.com:8085"
+- bitcoin_remote.zmq_rawblock: "tcp://bitcoin.br-ln.com:28332"
+- bitcoin_remote.zmq_rawtx: "tcp://bitcoin.br-ln.com:28333"
 - postgres.db_name: "lnd" (somente se o LND usa Postgres; se usa Bolt/SQLite, este campo nao e usado)
+
+## Bitcoin RPC (local e remoto)
+- O LightningOS nao le o bitcoin.conf automaticamente.
+- Ele usa as credenciais em /etc/lightningos/secrets.env (BITCOIN_RPC_USER/PASS).
+- Para Bitcoin local, use os mesmos valores do bitcoin.conf (rpcuser/rpcpassword).
+- Se voce usa rpcauth, precisa do usuario e da senha original (o hash do rpcauth sozinho nao serve) ou crie um usuario rpcuser/rpcpassword dedicado.
+- Se voce usa o Bitcoin remoto do clube, pode manter bitcoin.br-ln.com:8085 e os ZMQs do template.
+
+Exemplo minimo de bitcoin.conf (local):
+```
+server=1
+rpcuser=usuario_rpc
+rpcpassword=senha_rpc
+rpcallowip=127.0.0.1
+zmqpubrawblock=tcp://127.0.0.1:28332
+zmqpubrawtx=tcp://127.0.0.1:28333
+```
 
 ## Secrets (credenciais e DSNs)
 1) Copie o template:
