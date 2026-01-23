@@ -46,7 +46,7 @@ func (c *Client) SendKeysendMessage(ctx context.Context, pubkeyHex string, amoun
   defer conn.Close()
 
   client := lnrpc.NewLightningClient(conn)
-  _, err = client.SendPaymentSync(ctx, &lnrpc.SendRequest{
+  res, err := client.SendPaymentSync(ctx, &lnrpc.SendRequest{
     Dest: pubkey,
     Amt: amountSat,
     PaymentHash: hash[:],
@@ -57,6 +57,9 @@ func (c *Client) SendKeysendMessage(ctx context.Context, pubkeyHex string, amoun
   })
   if err != nil {
     return "", err
+  }
+  if res != nil && strings.TrimSpace(res.PaymentError) != "" {
+    return "", errors.New(strings.TrimSpace(res.PaymentError))
   }
 
   return hex.EncodeToString(hash[:]), nil

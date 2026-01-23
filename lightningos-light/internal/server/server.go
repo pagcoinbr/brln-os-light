@@ -88,4 +88,7 @@ func (s *Server) initNotifications() {
   s.notifier = NewNotifier(pool, s.lnd, s.logger)
   s.notifierErr = ""
   s.notifier.Start()
+  if s.chat != nil {
+    s.chat.AttachNotifier(s.notifier)
+  }
 }
