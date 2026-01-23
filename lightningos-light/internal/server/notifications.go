@@ -641,13 +641,25 @@ func (n *Notifier) runInvoices() {
         amount = invoice.Value
       }
       occurredAt := time.Unix(invoice.SettleDate, 0).UTC()
+      isKeysend := invoice.IsKeysend
+      evtType := "lightning"
+      var keysendPeerPubkey string
+      var keysendPeerAlias string
+      if isKeysend {
+        evtType = "keysend"
+        ctxPeer, cancelPeer := context.WithTimeout(context.Background(), 4*time.Second)
+        keysendPeerPubkey, keysendPeerAlias = n.keysendPeerFromInvoice(ctxPeer, invoice)
+        cancelPeer()
+      }
       evt := Notification{
         OccurredAt: occurredAt,
-        Type: "lightning",
+        Type: evtType,
         Action: "received",
         Direction: "in",
         Status: "SETTLED",
         AmountSat: amount,
+        PeerPubkey: keysendPeerPubkey,
+        PeerAlias: keysendPeerAlias,
         PaymentHash: hash,
         Memo: invoice.Memo,
       }
@@ -751,15 +763,26 @@ func (n *Notifier) runPayments() {
         }
         cancel()
       }
+      isKeysend := false
+      keysendDestPubkey := ""
+      if !isRebalance && isKeysendPayment(pay) {
+        isKeysend = true
+        keysendDestPubkey = keysendDestinationFromPayment(pay)
+      }
+      evtType := "lightning"
+      if isKeysend {
+        evtType = "keysend"
+      }
       evt := Notification{
         OccurredAt: occurredAt,
-        Type: "lightning",
+        Type: evtType,
         Action: "sent",
         Direction: "out",
         Status: status,
         AmountSat: amount,
         FeeSat: fee,
         FeeMsat: pay.FeeMsat,
+        PeerPubkey: keysendDestPubkey,
         PaymentHash: paymentHash,
       }
 
@@ -1379,6 +1402,75 @@ func rebalanceRouteFromPayment(pay *lnrpc.Payment) *lnrpc.Route {
     }
   }
   return nil
+}
+
+func hasKeysendRecord(records map[uint64][]byte) bool {
+  if len(records) == 0 {
+    return false
+  }
+  if _, ok := records[lndclient.KeysendPreimageRecord]; ok {
+    return true
+  }
+  if _, ok := records[lndclient.KeysendMessageRecord]; ok {
+    return true
+  }
+  return false
+}
+
+func isKeysendPayment(pay *lnrpc.Payment) bool {
+  if pay == nil {
+    return false
+  }
+  if hasKeysendRecord(pay.FirstHopCustomRecords) {
+    return true
+  }
+  for _, attempt := range pay.Htlcs {
+    if attempt == nil || attempt.Route == nil {
+      continue
+    }
+    for _, hop := range attempt.Route.Hops {
+      if hop == nil {
+        continue
+      }
+      if hasKeysendRecord(hop.CustomRecords) {
+        return true
+      }
+    }
+  }
+  return strings.TrimSpace(pay.PaymentRequest) == ""
+}
+
+func keysendDestinationFromPayment(pay *lnrpc.Payment) string {
+  route := rebalanceRouteFromPayment(pay)
+  if route == nil {
+    return ""
+  }
+  hops := route.GetHops()
+  if len(hops) == 0 {
+    return ""
+  }
+  return strings.TrimSpace(hops[len(hops)-1].PubKey)
+}
+
+func (n *Notifier) keysendPeerFromInvoice(ctx context.Context, invoice *lnrpc.Invoice) (string, string) {
+  if n == nil || invoice == nil {
+    return "", ""
+  }
+  if len(invoice.Htlcs) == 0 {
+    return "", ""
+  }
+  channelMap := n.channelMap(ctx)
+  for _, htlc := range invoice.Htlcs {
+    if htlc == nil || htlc.ChanId == 0 {
+      continue
+    }
+    info, ok := channelMap[htlc.ChanId]
+    if !ok {
+      continue
+    }
+    return info.RemotePubkey, strings.TrimSpace(info.PeerAlias)
+  }
+  return "", ""
 }
 
 func (n *Notifier) channelMap(ctx context.Context) map[uint64]lndclient.ChannelInfo {

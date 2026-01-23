@@ -368,7 +368,9 @@
     "liveUpdatesUnavailable": "Atualizações ao vivo indisponíveis.",
     "loading": "Carregando notificações...",
     "noNotifications": "Nenhuma notificação ainda.",
+    "peerFrom": "Origem {{peer}}",
     "peerLabel": "Peer {{peer}}",
+    "peerTo": "Destino {{peer}}",
     "recentActivity": "Atividade recente",
     "reconnecting": "Reconectando atualizações ao vivo...",
     "routeLabel": "Route {{peer}}",
@@ -399,6 +401,7 @@
     "type": {
       "channel": "Canal",
       "forward": "Forward",
+      "keysend": "Keysend",
       "lightning": "Lightning",
       "onchain": "On-chain",
       "rebalance": "Rebalance"

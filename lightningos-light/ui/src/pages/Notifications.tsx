@@ -103,6 +103,8 @@ export default function Notifications() {
         return t('notifications.type.forward')
       case 'rebalance':
         return t('notifications.type.rebalance')
+      case 'keysend':
+        return t('notifications.type.keysend')
       default:
         if (!value) return ''
         return value.charAt(0).toUpperCase() + value.slice(1)
@@ -229,7 +231,14 @@ export default function Notifications() {
   }, [items])
 
   const filtered = useMemo(() => {
-    const base = filter === 'all' ? items : items.filter((item) => item.type === filter)
+    const base = filter === 'all'
+      ? items
+      : items.filter((item) => {
+        if (filter === 'lightning') {
+          return item.type === 'lightning' || item.type === 'keysend'
+        }
+        return item.type === filter
+      })
     return base.filter((item) => {
       if (item.type === 'rebalance') return true
       if (!item.payment_hash) return true
@@ -394,7 +403,13 @@ export default function Notifications() {
                 const peerLabel = peer
                   ? item.type === 'rebalance'
                     ? t('notifications.routeLabel', { peer })
-                    : t('notifications.peerLabel', { peer })
+                    : item.type === 'keysend'
+                      ? item.direction === 'in'
+                        ? t('notifications.peerFrom', { peer })
+                        : item.direction === 'out'
+                          ? t('notifications.peerTo', { peer })
+                          : t('notifications.peerLabel', { peer })
+                      : t('notifications.peerLabel', { peer })
                   : ''
                 const feeRate = formatFeeRate(item.amount_sat, item.fee_sat, item.fee_msat)
                 let feeDetail = ''
