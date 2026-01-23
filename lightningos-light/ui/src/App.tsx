@@ -52,8 +52,12 @@ const readMenuConfig = (): MenuConfig | null => {
     const parsed = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object') return null
     return {
-      favorites: Array.isArray(parsed.favorites) ? parsed.favorites.filter((item) => typeof item === 'string') : [],
-      hidden: Array.isArray(parsed.hidden) ? parsed.hidden.filter((item) => typeof item === 'string') : []
+      favorites: Array.isArray(parsed.favorites)
+        ? parsed.favorites.filter((item: unknown) => typeof item === 'string')
+        : [],
+      hidden: Array.isArray(parsed.hidden)
+        ? parsed.hidden.filter((item: unknown) => typeof item === 'string')
+        : []
     }
   } catch {
     return null
@@ -100,7 +104,10 @@ const applyMenuConfig = (routes: RouteItem[], config: MenuConfig) => {
   const routeMap = new Map(routes.map((route) => [route.key, route]))
   const favorites = config.favorites
     .map((key) => routeMap.get(key))
-    .filter((route): route is RouteItem => Boolean(route) && !hiddenSet.has(route.key))
+    .filter((route): route is RouteItem => {
+      if (!route) return false
+      return !hiddenSet.has(route.key)
+    })
   const rest = routes.filter((route) => !favoriteSet.has(route.key) && !hiddenSet.has(route.key))
   return [...favorites, ...rest]
 }
