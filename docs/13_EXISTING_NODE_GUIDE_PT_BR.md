@@ -113,6 +113,16 @@ zmqpubrawblock=tcp://127.0.0.1:28332
 zmqpubrawtx=tcp://127.0.0.1:28333
 ```
 
+Nota: se voce usa rpcport diferente, o LightningOS usa essa porta para o RPC local ao ler /data/bitcoin/bitcoin.conf.
+
+Teste RPC local (opcional):
+```bash
+bitcoin-cli -conf=/data/bitcoin/bitcoin.conf getblockchaininfo
+# ou, se nao tiver bitcoin-cli:
+curl --user usuario_rpc:senha_rpc --data-binary '{"jsonrpc":"1.0","id":"curl","method":"getblockchaininfo","params":[]}' \
+  -H 'content-type:text/plain;' http://127.0.0.1:8332/
+```
+
 ## Secrets (credenciais e DSNs)
 1) Copie o template:
 ```bash
