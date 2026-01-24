@@ -113,10 +113,10 @@ sudo ${EDITOR:-nano} /etc/lightningos/config.yaml
 - postgres.db_name: "lnd" (somente se o LND usa Postgres; se usa Bolt/SQLite, este campo nao e usado)
 
 ## Bitcoin RPC (local e remoto)
-- O LightningOS nao le o bitcoin.conf automaticamente.
-- Ele usa as credenciais em /etc/lightningos/secrets.env (BITCOIN_RPC_USER/PASS).
-- Para Bitcoin local, use os mesmos valores do bitcoin.conf (rpcuser/rpcpassword).
-- Para o LightningOS reconhecer como local, use 127.0.0.1 no bitcoind.rpchost do lnd.conf (IP da LAN e tratado como remoto).
+- BITCOIN_RPC_USER e BITCOIN_RPC_PASS em /etc/lightningos/secrets.env sao para o Bitcoin remoto (normalmente preenchidos pelo wizard).
+- Bitcoin local e lido de /data/bitcoin/bitcoin.conf ou do bloco [Bitcoind] em /data/lnd/lnd.conf.
+- Para o LightningOS reconhecer como local, o bitcoind.rpchost pode ser 127.0.0.1, localhost ou o IP da propria maquina.
+- Opcional: defina BITCOIN_SOURCE=local ou BITCOIN_SOURCE=remote no secrets.env para forcar o modo.
 - Se voce usa rpcauth, precisa do usuario e da senha original (o hash do rpcauth sozinho nao serve) ou crie um usuario rpcuser/rpcpassword dedicado.
 - Se voce usa o Bitcoin remoto do clube, pode manter bitcoin.br-ln.com:8085 e os ZMQs do template.
 
@@ -150,9 +150,10 @@ sudo chmod 640 /etc/lightningos/secrets.env
 ```
 
 2) Preencha:
-- BITCOIN_RPC_USER e BITCOIN_RPC_PASS
+- BITCOIN_RPC_USER e BITCOIN_RPC_PASS (apenas para Bitcoin remoto)
 - NOTIFICATIONS_PG_DSN e NOTIFICATIONS_PG_ADMIN_DSN
 - LND_PG_DSN somente se o LND usa Postgres
+- Opcional: BITCOIN_SOURCE=local ou BITCOIN_SOURCE=remote para forcar o modo
 
 Exemplo de DSNs:
 ```

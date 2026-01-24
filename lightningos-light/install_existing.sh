@@ -683,22 +683,8 @@ main() {
     print_warn "bitcoin.conf not found at ${btc_conf}"
   fi
 
-  local rpc_user rpc_pass
-  print_step "Bitcoin local RPC"
-  echo "Note: for local Bitcoin, use 127.0.0.1 in lnd.conf (LAN IPs are treated as remote)."
-  rpc_user=$(read_conf_value "$btc_conf" "rpcuser" || true)
-  rpc_pass=$(read_conf_value "$btc_conf" "rpcpassword" || true)
-  if [[ -z "$rpc_user" ]]; then
-    rpc_user=$(prompt_value "Enter bitcoin RPC user")
-  fi
-  if [[ -z "$rpc_pass" ]]; then
-    rpc_pass=$(prompt_value "Enter bitcoin RPC password")
-  fi
-
   ensure_dirs
   ensure_secrets_file
-  set_env_value "BITCOIN_RPC_USER" "$rpc_user"
-  set_env_value "BITCOIN_RPC_PASS" "$rpc_pass"
 
   if [[ ! -f "$CONFIG_PATH" ]]; then
     cp "$REPO_ROOT/templates/lightningos.config.yaml" "$CONFIG_PATH"
