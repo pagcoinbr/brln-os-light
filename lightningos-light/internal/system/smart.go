@@ -397,8 +397,12 @@ func guessDiskType(device string) string {
 
 func parseSmartInt(line string) int {
   parts := strings.Fields(line)
-  for i := len(parts) - 1; i >= 0; i-- {
-    if v, err := strconv.Atoi(strings.TrimSpace(parts[i])); err == nil {
+  for _, part := range parts {
+    cleaned := smartDigits(part)
+    if cleaned == "" {
+      continue
+    }
+    if v, err := strconv.Atoi(cleaned); err == nil {
       return v
     }
   }
@@ -407,8 +411,12 @@ func parseSmartInt(line string) int {
 
 func parseSmartInt64(line string) int64 {
   parts := strings.Fields(line)
-  for i := len(parts) - 1; i >= 0; i-- {
-    if v, err := strconv.ParseInt(strings.TrimSpace(parts[i]), 10, 64); err == nil {
+  for _, part := range parts {
+    cleaned := smartDigits(part)
+    if cleaned == "" {
+      continue
+    }
+    if v, err := strconv.ParseInt(cleaned, 10, 64); err == nil {
       return v
     }
   }
@@ -420,8 +428,26 @@ func parseSmartAttribute(line string) int64 {
   if len(parts) < 10 {
     return 0
   }
-  v, _ := strconv.ParseInt(parts[len(parts)-1], 10, 64)
+  cleaned := smartDigits(parts[len(parts)-1])
+  if cleaned == "" {
+    return 0
+  }
+  v, _ := strconv.ParseInt(cleaned, 10, 64)
   return v
+}
+
+func smartDigits(value string) string {
+  if value == "" {
+    return ""
+  }
+  var b strings.Builder
+  b.Grow(len(value))
+  for _, r := range value {
+    if r >= '0' && r <= '9' {
+      b.WriteRune(r)
+    }
+  }
+  return b.String()
 }
 
 func addSmartAlerts(s DiskSmart) DiskSmart {

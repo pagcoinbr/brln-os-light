@@ -210,6 +210,45 @@ install_gotty() {
   print_ok "GoTTY installed"
 }
 
+ensure_smartmontools() {
+  if command -v smartctl >/dev/null 2>&1; then
+    print_ok "smartctl already installed"
+    return 0
+  fi
+  if ! command -v apt-get >/dev/null 2>&1; then
+    print_warn "smartctl not found and apt-get unavailable; install smartmontools manually"
+    return 1
+  fi
+  print_step "Installing smartmontools"
+  apt-get update
+  apt-get install -y smartmontools >/dev/null
+  print_ok "smartmontools installed"
+}
+
+configure_smartctl_sudoers() {
+  local user="$1"
+  if [[ "$user" == "root" ]]; then
+    print_ok "Manager user is root; smartctl sudoers not needed"
+    return 0
+  fi
+  if ! command -v sudo >/dev/null 2>&1; then
+    print_warn "sudo not found; smartctl access may fail"
+    return 1
+  fi
+  local smartctl_path
+  smartctl_path=$(command -v smartctl || true)
+  if [[ -z "$smartctl_path" ]]; then
+    smartctl_path="/usr/sbin/smartctl"
+  fi
+  local sudoers="/etc/sudoers.d/lightningos-smartctl"
+  cat > "$sudoers" <<EOF
+Defaults:${user} !requiretty
+${user} ALL=NOPASSWD: ${smartctl_path} *
+EOF
+  chmod 440 "$sudoers"
+  print_ok "Sudoers updated for smartctl"
+}
+
 read_conf_value() {
   local path="$1"
   local key="$2"
@@ -662,6 +701,10 @@ main() {
 
   ensure_tls
 
+  if prompt_yes_no "Install smartmontools (smartctl) for disk health?" "y"; then
+    ensure_smartmontools || print_warn "SMART data may be unavailable"
+  fi
+
   local lnd_backend
   lnd_backend=$(detect_lnd_backend "$lnd_conf")
   if [[ "$lnd_backend" == "postgres" ]]; then
@@ -751,6 +794,9 @@ main() {
   done
   if prompt_yes_no "Add ${manager_user} to lnd/bitcoin/docker groups when available?" "y"; then
     ensure_group_membership "$manager_user" lnd bitcoin docker systemd-journal
+  fi
+  if prompt_yes_no "Allow ${manager_user} to run smartctl via sudo (no password)?" "y"; then
+    configure_smartctl_sudoers "$manager_user" || print_warn "SMART data may be unavailable"
   fi
   ensure_manager_service "$manager_user" "$manager_group"
   fix_lightningos_permissions "$manager_group"
