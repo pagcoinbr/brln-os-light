@@ -288,7 +288,7 @@ resolve_data_dir() {
   echo "$dir"
 }
 
-ensure_tools() {
+ensure_go() {
   local go_ok="0"
   if command -v go >/dev/null 2>&1; then
     local current major minor
@@ -308,7 +308,9 @@ ensure_tools() {
       exit 1
     fi
   fi
+}
 
+ensure_node() {
   local node_ok="0"
   local npm_ok="0"
   if command -v node >/dev/null 2>&1; then
@@ -598,6 +600,27 @@ provision_notifications_db() {
   print_ok "Notifications database ready (${NOTIFICATIONS_DB_NAME})"
 }
 
+run_reports_backfill() {
+  local from
+  local to
+  from=$(prompt_value "Reports backfill FROM date (YYYY-MM-DD, blank to skip)")
+  if [[ -z "$from" ]]; then
+    return 0
+  fi
+  to=$(prompt_value "Reports backfill TO date (YYYY-MM-DD)")
+  if [[ -z "$to" ]]; then
+    print_warn "Missing TO date; skipping backfill"
+    return 0
+  fi
+  if [[ ! -x /opt/lightningos/manager/lightningos-manager ]]; then
+    print_warn "Manager binary not found; skipping backfill"
+    return 0
+  fi
+  print_step "Running reports backfill (${from} -> ${to})"
+  /opt/lightningos/manager/lightningos-manager reports-backfill --from "$from" --to "$to" || \
+    print_warn "Reports backfill failed"
+}
+
 main() {
   require_root
   print_step "LightningOS existing node setup"
@@ -617,6 +640,8 @@ main() {
   fi
 
   local rpc_user rpc_pass
+  print_step "Bitcoin local RPC"
+  echo "Note: for local Bitcoin, use 127.0.0.1 in lnd.conf (LAN IPs are treated as remote)."
   rpc_user=$(read_conf_value "$btc_conf" "rpcuser" || true)
   rpc_pass=$(read_conf_value "$btc_conf" "rpcpassword" || true)
   if [[ -z "$rpc_user" ]]; then
@@ -735,12 +760,16 @@ main() {
   fi
 
   if prompt_yes_no "Build and install manager binary now?" "y"; then
-    ensure_tools
+    ensure_go
     build_manager
   fi
   if prompt_yes_no "Build and install UI now?" "y"; then
-    ensure_tools
+    ensure_node
     build_ui
+  fi
+
+  if prompt_yes_no "Run reports backfill now?" "n"; then
+    run_reports_backfill
   fi
 
   print_step "Enabling services"

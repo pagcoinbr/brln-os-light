@@ -116,6 +116,7 @@ sudo ${EDITOR:-nano} /etc/lightningos/config.yaml
 - O LightningOS nao le o bitcoin.conf automaticamente.
 - Ele usa as credenciais em /etc/lightningos/secrets.env (BITCOIN_RPC_USER/PASS).
 - Para Bitcoin local, use os mesmos valores do bitcoin.conf (rpcuser/rpcpassword).
+- Para o LightningOS reconhecer como local, use 127.0.0.1 no bitcoind.rpchost do lnd.conf (IP da LAN e tratado como remoto).
 - Se voce usa rpcauth, precisa do usuario e da senha original (o hash do rpcauth sozinho nao serve) ou crie um usuario rpcuser/rpcpassword dedicado.
 - Se voce usa o Bitcoin remoto do clube, pode manter bitcoin.br-ln.com:8085 e os ZMQs do template.
 
