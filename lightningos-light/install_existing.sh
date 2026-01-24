@@ -7,7 +7,7 @@ REPO_ROOT="$SCRIPT_DIR"
 
 GO_VERSION="${GO_VERSION:-1.22.7}"
 GO_TARBALL_URL="https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
-NODE_VERSION="${NODE_VERSION:-20}"
+NODE_VERSION="${NODE_VERSION:-current}"
 GOTTY_VERSION="${GOTTY_VERSION:-1.0.1}"
 GOTTY_URL="https://github.com/yudai/gotty/releases/download/v${GOTTY_VERSION}/gotty_linux_amd64.tar.gz"
 
@@ -128,8 +128,20 @@ fix_lightningos_permissions() {
 
 install_go() {
   print_step "Installing Go ${GO_VERSION}"
+  if command -v go >/dev/null 2>&1; then
+    local current major minor
+    current=$(go version | awk '{print $3}' | sed 's/go//')
+    major=$(echo "$current" | cut -d. -f1)
+    minor=$(echo "$current" | cut -d. -f2)
+    if [[ "$major" -gt 1 || ( "$major" -eq 1 && "$minor" -ge 22 ) ]]; then
+      export PATH="/usr/local/go/bin:$PATH"
+      print_ok "Go already installed ($current)"
+      return
+    fi
+  fi
+
   rm -rf /usr/local/go
-  curl -fsSL "$GO_TARBALL_URL" -o /tmp/go.tgz
+  curl -L "$GO_TARBALL_URL" -o /tmp/go.tgz
   tar -C /usr/local -xzf /tmp/go.tgz
   rm -f /tmp/go.tgz
   export PATH="/usr/local/go/bin:$PATH"
@@ -137,7 +149,16 @@ install_go() {
 }
 
 install_node() {
+  resolve_node_version
   print_step "Installing Node.js ${NODE_VERSION}.x"
+  if command -v node >/dev/null 2>&1; then
+    local major
+    major=$(node -v | sed 's/v//' | cut -d. -f1)
+    if [[ "$major" -ge "$NODE_VERSION" ]]; then
+      print_ok "Node.js already installed ($(node -v))"
+      return
+    fi
+  fi
   if ! command -v apt-get >/dev/null 2>&1; then
     print_warn "apt-get not found; install Node.js manually and re-run."
     return 1
@@ -145,6 +166,28 @@ install_node() {
   curl -fsSL "https://deb.nodesource.com/setup_${NODE_VERSION}.x" | bash -
   apt-get install -y nodejs >/dev/null
   print_ok "Node.js installed"
+}
+
+resolve_node_version() {
+  if [[ "$NODE_VERSION" =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
+  if command -v jq >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+    local major
+    major=$(curl -fsSL https://nodejs.org/dist/index.json \
+      | jq -r '.[].version' \
+      | sed 's/^v//' \
+      | cut -d. -f1 \
+      | sort -nr \
+      | head -n1)
+    if [[ -n "$major" ]]; then
+      NODE_VERSION="$major"
+      print_ok "Using Node.js ${NODE_VERSION}.x"
+      return 0
+    fi
+  fi
+  print_warn "Could not resolve latest Node.js version; falling back to 20"
+  NODE_VERSION="20"
 }
 
 install_gotty() {
@@ -212,18 +255,42 @@ resolve_data_dir() {
 }
 
 ensure_tools() {
-  if ! command -v go >/dev/null 2>&1; then
-    print_warn "Go not found"
-    if prompt_yes_no "Install Go now?" "y"; then
+  local go_ok="0"
+  if command -v go >/dev/null 2>&1; then
+    local current major minor
+    current=$(go version | awk '{print $3}' | sed 's/go//')
+    major=$(echo "$current" | cut -d. -f1)
+    minor=$(echo "$current" | cut -d. -f2)
+    if [[ "$major" -gt 1 || ( "$major" -eq 1 && "$minor" -ge 22 ) ]]; then
+      go_ok="1"
+    fi
+  fi
+  if [[ "$go_ok" != "1" ]]; then
+    print_warn "Go 1.22+ required"
+    if prompt_yes_no "Install Go ${GO_VERSION} now?" "y"; then
       install_go
     else
       print_warn "Go is required to build the manager"
       exit 1
     fi
   fi
-  if ! command -v npm >/dev/null 2>&1; then
-    print_warn "npm not found"
-    if prompt_yes_no "Install Node.js (npm) now?" "y"; then
+
+  local node_ok="0"
+  local npm_ok="0"
+  if command -v node >/dev/null 2>&1; then
+    resolve_node_version
+    local major
+    major=$(node -v | sed 's/v//' | cut -d. -f1)
+    if [[ "$major" -ge "$NODE_VERSION" ]]; then
+      node_ok="1"
+    fi
+  fi
+  if command -v npm >/dev/null 2>&1; then
+    npm_ok="1"
+  fi
+  if [[ "$node_ok" != "1" || "$npm_ok" != "1" ]]; then
+    print_warn "Node.js (npm) required"
+    if prompt_yes_no "Install Node.js ${NODE_VERSION}.x now?" "y"; then
       install_node
     else
       print_warn "npm is required to build the UI"
