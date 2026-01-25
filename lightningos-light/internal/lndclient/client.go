@@ -640,9 +640,14 @@ func (c *Client) ListOnchain(ctx context.Context, limit int) ([]RecentActivity, 
   defer conn.Close()
 
   client := lnrpc.NewLightningClient(conn)
-  resp, err := client.GetTransactions(ctx, &lnrpc.GetTransactionsRequest{
+  req := &lnrpc.GetTransactionsRequest{
     MaxTransactions: uint32(limit),
-  })
+  }
+  if info, infoErr := client.GetInfo(ctx, &lnrpc.GetInfoRequest{}); infoErr == nil {
+    req.StartHeight = int32(info.BlockHeight)
+    req.EndHeight = -1
+  }
+  resp, err := client.GetTransactions(ctx, req)
   if err != nil {
     return nil, err
   }
