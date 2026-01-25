@@ -59,6 +59,7 @@ func FetchRebalanceFeesByDay(ctx context.Context, lnd *lndclient.Client, startUn
     }
 
     minIndex := uint64(0)
+    nextOffset := uint64(0)
     maxTs := int64(0)
     minTs := int64(1<<63 - 1)
 
@@ -102,17 +103,19 @@ func FetchRebalanceFeesByDay(ctx context.Context, lnd *lndclient.Client, startUn
     if maxTs < int64(startUnix) {
       break
     }
-    if minIndex == 0 {
+    if resp.FirstIndexOffset != 0 {
+      nextOffset = resp.FirstIndexOffset
+    } else if minIndex != 0 {
+      nextOffset = minIndex
+    }
+    if nextOffset == 0 {
       break
     }
-    if indexOffset != 0 && minIndex >= indexOffset {
+    if nextOffset == indexOffset || lastOffset == nextOffset {
       break
     }
-    if lastOffset == minIndex {
-      break
-    }
-    lastOffset = minIndex
-    indexOffset = minIndex
+    lastOffset = nextOffset
+    indexOffset = nextOffset
 
     if len(resp.Payments) < rebalanceScanPageSize && minTs < int64(startUnix) {
       break
