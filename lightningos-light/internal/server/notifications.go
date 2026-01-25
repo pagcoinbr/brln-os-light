@@ -1210,6 +1210,8 @@ func (n *Notifier) lookupNodeAlias(pubkey string) string {
 func (n *Notifier) runForwards() {
   debug := strings.EqualFold(strings.TrimSpace(os.Getenv("NOTIFICATIONS_DEBUG_FORWARDS")), "1") ||
     strings.EqualFold(strings.TrimSpace(os.Getenv("NOTIFICATIONS_DEBUG_FORWARDS")), "true")
+  backfill := strings.EqualFold(strings.TrimSpace(os.Getenv("NOTIFICATIONS_FORWARDS_BACKFILL")), "1") ||
+    strings.EqualFold(strings.TrimSpace(os.Getenv("NOTIFICATIONS_FORWARDS_BACKFILL")), "true")
 
   for {
     select {
@@ -1228,8 +1230,32 @@ func (n *Notifier) runForwards() {
         after = parsed
       }
     }
+    if after == 0 && !backfill {
+      ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+      if latest, ok := n.latestForwardOccurredAt(ctx); ok {
+        latestUnix := latest.Unix()
+        now := time.Now().UTC().Unix()
+        if latestUnix > 0 && now-latestUnix > int64(7*24*time.Hour/time.Second) {
+          if now > int64(time.Hour/time.Second) {
+            after = uint64(now - int64(time.Hour/time.Second))
+          }
+        } else if latestUnix > 0 {
+          if latestUnix > 5 {
+            after = uint64(latestUnix - 5)
+          } else {
+            after = uint64(latestUnix)
+          }
+        }
+      } else {
+        now := time.Now().UTC().Unix()
+        if now > int64(time.Hour/time.Second) {
+          after = uint64(now - int64(time.Hour/time.Second))
+        }
+      }
+      cancel()
+    }
     if debug {
-      n.logger.Printf("notifications: forwards poll start (after=%d)", after)
+      n.logger.Printf("notifications: forwards poll start (after=%d backfill=%t)", after, backfill)
     }
 
     conn, err := n.lnd.DialLightning(context.Background())
@@ -1351,6 +1377,25 @@ func normalizeForwardTimestamp(fwd *lnrpc.ForwardingEvent) (time.Time, uint64, u
     tsNs = tsSec * uint64(time.Second)
   }
   return time.Unix(0, int64(tsNs)).UTC(), tsSec, tsNs
+}
+
+func (n *Notifier) latestForwardOccurredAt(ctx context.Context) (time.Time, bool) {
+  if n == nil || n.db == nil {
+    return time.Time{}, false
+  }
+  var occurredAt time.Time
+  err := n.db.QueryRow(ctx, `
+select occurred_at from notifications
+where type='forward'
+order by occurred_at desc
+limit 1`).Scan(&occurredAt)
+  if err == pgx.ErrNoRows {
+    return time.Time{}, false
+  }
+  if err != nil {
+    return time.Time{}, false
+  }
+  return occurredAt, true
 }
 
 func normalizeHash(value string) string {
