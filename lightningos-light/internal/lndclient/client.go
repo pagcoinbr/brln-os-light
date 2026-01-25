@@ -597,6 +597,21 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
     }
   }
 
+  rebalanceHashes := map[string]struct{}{}
+  if payErr == nil {
+    for _, pay := range payments.Payments {
+      if pay == nil || pay.Status != lnrpc.Payment_SUCCEEDED {
+        continue
+      }
+      if isSelfPayment(ctx, pubkey, client, pay) {
+        hash := strings.ToLower(strings.TrimSpace(pay.PaymentHash))
+        if hash != "" {
+          rebalanceHashes[hash] = struct{}{}
+        }
+      }
+    }
+  }
+
   var items []RecentActivity
   if invErr == nil {
     for _, inv := range invoices.Invoices {
@@ -606,6 +621,11 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
       hash := ""
       if len(inv.RHash) > 0 {
         hash = hex.EncodeToString(inv.RHash)
+      }
+      if hash != "" {
+        if _, ok := rebalanceHashes[strings.ToLower(strings.TrimSpace(hash))]; ok {
+          continue
+        }
       }
       items = append(items, RecentActivity{
         Type: "invoice",
