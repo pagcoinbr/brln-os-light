@@ -585,7 +585,11 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
   client := lnrpc.NewLightningClient(conn)
 
   invoices, invErr := client.ListInvoices(ctx, &lnrpc.ListInvoiceRequest{Reversed: true, NumMaxInvoices: uint64(limit)})
-  payments, payErr := client.ListPayments(ctx, &lnrpc.ListPaymentsRequest{IncludeIncomplete: true, MaxPayments: uint64(limit)})
+  payments, payErr := client.ListPayments(ctx, &lnrpc.ListPaymentsRequest{
+    IncludeIncomplete: true,
+    MaxPayments: uint64(limit),
+    Reversed: true,
+  })
 
   var items []RecentActivity
   if invErr == nil {

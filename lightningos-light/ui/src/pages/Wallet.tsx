@@ -14,6 +14,8 @@ const emptySummary = {
 export default function Wallet() {
   const { t, i18n } = useTranslation()
   const locale = getLocale(i18n.language)
+  const satFormatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 })
+  const satDecimalFormatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 3 })
   const [summary, setSummary] = useState<any>(emptySummary)
   const [summaryError, setSummaryError] = useState('')
   const [summaryWarning, setSummaryWarning] = useState('')
@@ -180,6 +182,16 @@ export default function Wallet() {
     ? 'text-brass'
     : 'text-ember'
 
+  const formatSats = (value?: number) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return '-'
+    return satFormatter.format(value)
+  }
+
+  const formatSatsDecimal = (value?: number) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return '-'
+    return satDecimalFormatter.format(value)
+  }
+
   const formatTimestamp = (value: any) => {
     if (!value) return t('common.unknownTime')
     const parsed = new Date(value)
@@ -262,7 +274,7 @@ export default function Wallet() {
     const point = String(ch.channel_point || '').trim()
     const shortPoint = point && point.length > 16 ? `${point.slice(0, 8)}...${point.slice(-4)}` : point
     const localBalance = Number(ch.local_balance_sat || 0)
-    return `${peerLabel} | ${shortPoint} | ${localBalance} sats`
+    return `${peerLabel} | ${shortPoint} | ${formatSats(localBalance)} sats`
   }
 
   useEffect(() => {
@@ -395,8 +407,8 @@ export default function Wallet() {
     if (!decode) return ''
     const amountSat = Number(decode.amount_sat || 0)
     const amountMsat = Number(decode.amount_msat || 0)
-    if (amountSat > 0) return `${amountSat} sats`
-    if (amountMsat > 0) return `${(amountMsat / 1000).toFixed(3)} sats`
+    if (amountSat > 0) return `${formatSats(amountSat)} sats`
+    if (amountMsat > 0) return `${formatSatsDecimal(amountMsat / 1000)} sats`
     return t('wallet.amountless')
   }
 
@@ -410,7 +422,7 @@ export default function Wallet() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-fog/60">{t('wallet.onchain')}</p>
-                <p className="text-xl">{onchainBalance} sats</p>
+                <p className="text-xl">{formatSats(onchainBalance)} sats</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button className="btn-secondary text-xs px-3 py-1.5" onClick={handleAddFunds}>
@@ -538,7 +550,7 @@ export default function Wallet() {
           </div>
           <div className="rounded-2xl border border-white/10 bg-ink/60 p-4">
             <p className="text-fog/60">{t('wallet.lightning')}</p>
-            <p className="text-xl">{lightningBalance} sats</p>
+            <p className="text-xl">{formatSats(lightningBalance)} sats</p>
             <p className="mt-2 text-xs text-fog/50">{t('wallet.lightningHint')}</p>
           </div>
         </div>
@@ -666,7 +678,7 @@ export default function Wallet() {
                   <span className="text-fog/50"> - {statusLabel}{memoLabel}</span>
                 </div>
                 <span className={`text-xs font-mono ${arrowTone}`}>{arrow}</span>
-                <span className="text-right">{item.amount_sat} sats</span>
+                <span className="text-right">{formatSats(Number(item.amount_sat || 0))} sats</span>
               </div>
             )
           }) : (
