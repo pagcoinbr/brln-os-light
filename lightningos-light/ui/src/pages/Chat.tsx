@@ -46,6 +46,7 @@ export default function Chat() {
   const [peers, setPeers] = useState<Peer[]>([])
   const [peerStatus, setPeerStatus] = useState('')
   const [selectedPeer, setSelectedPeer] = useState<Peer | null>(null)
+  const [peerQuery, setPeerQuery] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inboxItems, setInboxItems] = useState<ChatInboxItem[]>([])
   const [lastReadMap, setLastReadMap] = useState<Record<string, number>>(() => {
@@ -212,6 +213,16 @@ export default function Chat() {
     return list
   }, [peers])
 
+  const filteredPeers = useMemo(() => {
+    const query = peerQuery.trim().toLowerCase()
+    if (!query) return sortedPeers
+    return sortedPeers.filter((peer) => {
+      const alias = (peer.alias || '').toLowerCase()
+      const key = peer.pub_key.toLowerCase()
+      return alias.includes(query) || key.includes(query)
+    })
+  }, [peerQuery, sortedPeers])
+
   const overLimit = draft.trim().length > messageLimit
   const canSend = Boolean(selectedPeer && selectedOnline && draft.trim() && !overLimit && !sending)
 
@@ -254,8 +265,15 @@ export default function Chat() {
             <span className="text-xs text-fog/60">{peers.length}</span>
           </div>
           {sortedPeers.length ? (
+            <>
+              <input
+                className="input-field text-sm"
+                placeholder={t('chat.searchPeers')}
+                value={peerQuery}
+                onChange={(e) => setPeerQuery(e.target.value)}
+              />
             <div className="space-y-2 max-h-[520px] overflow-y-auto pr-2">
-              {sortedPeers.map((peer) => (
+              {filteredPeers.map((peer) => (
                 <button
                   key={peer.pub_key}
                   type="button"
@@ -280,6 +298,10 @@ export default function Chat() {
                 </button>
               ))}
             </div>
+            {!filteredPeers.length && (
+              <p className="text-sm text-fog/60">{t('chat.noPeersMatch')}</p>
+            )}
+            </>
           ) : (
             <p className="text-sm text-fog/60">{t('chat.noOnlinePeers')}</p>
           )}
@@ -313,9 +335,7 @@ export default function Chat() {
             </div>
           )}
 
-          <div className="rounded-2xl border border-white/10 bg-ink/60 p-3 text-xs text-fog/70">
-            {t('chat.keysendCost')}
-          </div>
+          <p className="text-xs text-fog/60">{t('chat.keysendCost')}</p>
 
           <div className="flex-1 min-h-[280px] overflow-y-auto space-y-3 pr-2">
             {loadingMessages && <p className="text-sm text-fog/60">{t('chat.loadingMessages')}</p>}
