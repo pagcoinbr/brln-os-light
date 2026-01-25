@@ -513,6 +513,19 @@ order by occurred_at desc limit 1`, normalized).Scan(&payID, &payFee, &payFeeMsa
   if err != nil {
     return
   }
+  if payFeeMsat == 0 && payFee != 0 {
+    payFeeMsat = payFee * 1000
+  }
+  if payFeeMsat == 0 {
+    feeCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+    if pay, err := n.lookupPaymentByHash(feeCtx, normalized); err == nil && pay != nil {
+      if feeMsat := paymentFeeMsat(pay); feeMsat != 0 {
+        payFeeMsat = feeMsat
+        payFee = feeMsat / 1000
+      }
+    }
+    cancel()
+  }
 
   var invID int64
   var invAmount int64
@@ -1221,6 +1234,13 @@ func (n *Notifier) runForwards() {
 
     client := lnrpc.NewLightningClient(conn)
     endTime := uint64(time.Now().Unix())
+    if after > endTime+300 {
+      n.logger.Printf("notifications: forwards cursor ahead of time (after=%d end=%d), resetting", after, endTime)
+      after = 0
+      ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+      _ = n.setCursor(ctx, "forwards_after", "0")
+      cancel()
+    }
     startTime := after
     if startTime > 1 {
       startTime = startTime - 1
@@ -1247,13 +1267,7 @@ func (n *Notifier) runForwards() {
       }
 
       for _, fwd := range res.ForwardingEvents {
-        ts := int64(fwd.TimestampNs)
-        tsKey := fwd.TimestampNs
-        if ts == 0 && fwd.Timestamp > 0 {
-          ts = int64(fwd.Timestamp) * int64(time.Second)
-          tsKey = fwd.Timestamp * uint64(time.Second)
-        }
-        occurredAt := time.Unix(0, ts).UTC()
+        occurredAt, tsSec, tsKey := normalizeForwardTimestamp(fwd)
         amount := int64(fwd.AmtOut)
         fee := int64(fwd.Fee)
         feeMsat := int64(fwd.FeeMsat)
@@ -1274,14 +1288,8 @@ func (n *Notifier) runForwards() {
         _, _ = n.upsertNotification(ctx, eventKey, evt)
         cancel()
 
-        if fwd.Timestamp > maxSeen {
-          maxSeen = fwd.Timestamp
-        }
-        if fwd.TimestampNs > 0 {
-          tsSec := uint64(fwd.TimestampNs / uint64(time.Second))
-          if tsSec > maxSeen {
-            maxSeen = tsSec
-          }
+        if tsSec > maxSeen {
+          maxSeen = tsSec
         }
       }
 
@@ -1321,6 +1329,32 @@ func nullableString(value string) any {
     return nil
   }
   return value
+}
+
+func normalizeForwardTimestamp(fwd *lnrpc.ForwardingEvent) (time.Time, uint64, uint64) {
+  if fwd == nil {
+    now := uint64(time.Now().Unix())
+    return time.Unix(int64(now), 0).UTC(), now, now * uint64(time.Second)
+  }
+  tsSec := fwd.Timestamp
+  tsNs := fwd.TimestampNs
+  if tsNs > 0 && tsNs < 1_000_000_000_000 {
+    tsSec = tsNs
+    tsNs = tsNs * uint64(time.Second)
+  }
+  if tsNs == 0 && tsSec > 0 {
+    tsNs = tsSec * uint64(time.Second)
+  }
+  if tsSec == 0 && tsNs > 0 {
+    tsSec = tsNs / uint64(time.Second)
+  }
+  if tsSec == 0 {
+    tsSec = uint64(time.Now().Unix())
+  }
+  if tsNs == 0 {
+    tsNs = tsSec * uint64(time.Second)
+  }
+  return time.Unix(0, int64(tsNs)).UTC(), tsSec, tsNs
 }
 
 func normalizeHash(value string) string {
