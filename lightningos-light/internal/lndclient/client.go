@@ -590,10 +590,19 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
     MaxPayments: uint64(limit),
     Reversed: true,
   })
+  pubkey := strings.TrimSpace(c.CachedPubkey())
+  if pubkey == "" {
+    if info, infoErr := client.GetInfo(ctx, &lnrpc.GetInfoRequest{}); infoErr == nil && info != nil {
+      pubkey = strings.TrimSpace(info.IdentityPubkey)
+    }
+  }
 
   var items []RecentActivity
   if invErr == nil {
     for _, inv := range invoices.Invoices {
+      if inv.State != lnrpc.Invoice_SETTLED {
+        continue
+      }
       hash := ""
       if len(inv.RHash) > 0 {
         hash = hex.EncodeToString(inv.RHash)
@@ -612,6 +621,12 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
   }
   if payErr == nil {
     for _, pay := range payments.Payments {
+      if pay.Status != lnrpc.Payment_SUCCEEDED {
+        continue
+      }
+      if isSelfPayment(ctx, pubkey, client, pay) {
+        continue
+      }
       items = append(items, RecentActivity{
         Type: "payment",
         Network: "lightning",
@@ -626,6 +641,54 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
   }
 
   return items, nil
+}
+
+func isSelfPayment(ctx context.Context, pubkey string, client lnrpc.LightningClient, pay *lnrpc.Payment) bool {
+  if pay == nil || pubkey == "" {
+    return false
+  }
+
+  trimmed := strings.TrimSpace(pay.PaymentRequest)
+  if trimmed != "" {
+    decoded, err := client.DecodePayReq(ctx, &lnrpc.PayReqString{PayReq: trimmed})
+    if err == nil && decoded != nil && strings.EqualFold(decoded.Destination, pubkey) {
+      return true
+    }
+  }
+
+  route := rebalanceRouteFromPayment(pay)
+  if route == nil {
+    return false
+  }
+  hops := route.GetHops()
+  if len(hops) == 0 {
+    return false
+  }
+  lastHop := strings.TrimSpace(hops[len(hops)-1].PubKey)
+  if lastHop == "" {
+    return false
+  }
+  return strings.EqualFold(lastHop, pubkey)
+}
+
+func rebalanceRouteFromPayment(pay *lnrpc.Payment) *lnrpc.Route {
+  if pay == nil {
+    return nil
+  }
+  for _, attempt := range pay.Htlcs {
+    if attempt == nil || attempt.Route == nil {
+      continue
+    }
+    if attempt.Status == lnrpc.HTLCAttempt_SUCCEEDED {
+      return attempt.Route
+    }
+  }
+  for _, attempt := range pay.Htlcs {
+    if attempt != nil && attempt.Route != nil {
+      return attempt.Route
+    }
+  }
+  return nil
 }
 
 func (c *Client) ListOnchain(ctx context.Context, limit int) ([]RecentActivity, error) {
