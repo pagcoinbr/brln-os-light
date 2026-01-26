@@ -413,7 +413,7 @@ export default function Reports() {
                 className="input-field"
                 type="number"
                 min={0}
-                placeholder="6"
+                placeholder="24"
                 value={liveLookback}
                 onChange={(e) => setLiveLookback(e.target.value)}
               />
