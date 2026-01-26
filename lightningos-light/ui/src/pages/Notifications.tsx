@@ -528,7 +528,17 @@ export default function Notifications() {
                     <div className="text-right">
                       <div>{item.amount_sat} sats</div>
                       {formatFeeDisplay(locale, item.fee_sat, item.fee_msat) && (
-                        <div className="text-xs text-fog/50">{t('notifications.feeLabel', { fee: formatFeeDisplay(locale, item.fee_sat, item.fee_msat) })}</div>
+                        <div
+                          className={`text-xs ${
+                            item.type === 'forward'
+                              ? 'text-emerald-200'
+                              : item.type === 'rebalance'
+                                ? 'text-ember'
+                                : 'text-fog/50'
+                          }`}
+                        >
+                          {t('notifications.feeLabel', { fee: formatFeeDisplay(locale, item.fee_sat, item.fee_msat) })}
+                        </div>
                       )}
                     </div>
                   </div>
