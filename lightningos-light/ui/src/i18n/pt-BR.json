@@ -83,7 +83,7 @@
       "ember": "Brasa",
       "slate": "Ardosia"
     },
-    "systemLabel": "SYSTEM",
+    "systemLabel": "SISTEMA",
     "toggleLanguage": "Alternar idioma"
   },
   "sidebar": {
@@ -98,7 +98,7 @@
     "moveUp": "Mover para cima",
     "moveDown": "Mover para baixo",
     "hideItem": "Ocultar",
-    "showItem": "Mostrar no menu",
+    "showItem": "Mostrar",
     "resetMenu": "Restaurar padrão",
     "poweredBy": "Powered By BR⚡LN",
     "versionLabel": "Versão:"
