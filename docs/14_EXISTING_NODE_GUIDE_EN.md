@@ -26,6 +26,11 @@ sudo ./install_existing.sh
 ```
 It asks about Go/npm (required for build), Postgres, terminal, and basic setup.
 If you opt into Postgres, the script creates the LightningOS roles/DB and fills secrets.env automatically.
+The script also writes the systemd units with the users you provide:
+- lightningos-manager: uses the Manager service user/group.
+- lightningos-reports: uses the same user/group as the manager.
+- lightningos-terminal: uses the terminal user you provide.
+For SupplementaryGroups, it only adds groups that exist on the host.
 
 If the script is not executable:
 ```bash
@@ -237,6 +242,7 @@ sudo cp templates/systemd/lightningos-reports.service \
 Edit the lightningos-reports.service file and adjust it according to your environment:
 - User=admin
 - Group=admin
+- SupplementaryGroups=systemd-journal (only if it exists)
 ```bash
 sudo ${EDITOR:-nano} /etc/systemd/system/lightningos-reports.service
 ```
@@ -258,7 +264,7 @@ sudo ${EDITOR:-nano} /etc/systemd/system/lightningos-manager.service
 2) Recommended edits:
 - User=admin
 - Group=admin
-- SupplementaryGroups=lnd bitcoin systemd-journal docker
+- SupplementaryGroups=lnd bitcoin systemd-journal docker (only groups that exist)
 
 3) Enable and start:
 ```bash

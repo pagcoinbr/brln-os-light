@@ -44,9 +44,7 @@ const formatFeeDisplay = (feeSat: number, feeMsat?: number) => {
   const msat = feeMsatTotal(feeSat, feeMsat)
   if (msat <= 0) return ''
   const sats = msat / 1000
-  if (sats >= 1) return `${Math.round(sats)} sats`
-  const trimmed = sats.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
-  return `${trimmed} sats`
+  return `${sats.toFixed(3)} sats`
 }
 
 const formatFeeRate = (amount: number, feeSat: number, feeMsat?: number) => {

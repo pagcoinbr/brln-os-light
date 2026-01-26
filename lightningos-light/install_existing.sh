@@ -479,8 +479,18 @@ ensure_manager_service() {
 }
 
 ensure_reports_services() {
-  cp "$REPO_ROOT/templates/systemd/lightningos-reports.service" /etc/systemd/system/lightningos-reports.service
+  local user="$1"
+  local group="$2"
+  local svc="/etc/systemd/system/lightningos-reports.service"
+  cp "$REPO_ROOT/templates/systemd/lightningos-reports.service" "$svc"
   cp "$REPO_ROOT/templates/systemd/lightningos-reports.timer" /etc/systemd/system/lightningos-reports.timer
+  sed -i "s|^User=.*|User=${user}|" "$svc"
+  sed -i "s|^Group=.*|Group=${group}|" "$svc"
+  if getent group systemd-journal >/dev/null 2>&1; then
+    sed -i "s|^SupplementaryGroups=.*|SupplementaryGroups=systemd-journal|" "$svc"
+  else
+    sed -i "/^SupplementaryGroups=/d" "$svc"
+  fi
 }
 
 ensure_terminal_service() {
@@ -882,7 +892,7 @@ main() {
   fix_lightningos_storage_permissions "$manager_user" "$manager_group"
 
   if prompt_yes_no "Install reports timer (requires Postgres)?" "y"; then
-    ensure_reports_services
+    ensure_reports_services "$manager_user" "$manager_group"
   fi
 
   if prompt_yes_no "Build and install manager binary now?" "y"; then
