@@ -1593,7 +1593,7 @@ func isKeysendPayment(pay *lnrpc.Payment) bool {
       }
     }
   }
-  return strings.TrimSpace(pay.PaymentRequest) == ""
+  return false
 }
 
 func keysendDestinationFromPayment(pay *lnrpc.Payment) string {
