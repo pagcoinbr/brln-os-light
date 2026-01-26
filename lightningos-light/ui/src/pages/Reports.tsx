@@ -15,7 +15,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
-import { getReportsLive, getReportsRange, getReportsSummary } from '../api'
+import { getReportsConfig, getReportsLive, getReportsRange, getReportsSummary, updateReportsConfig } from '../api'
 import { getLocale } from '../i18n'
 
 type ReportSeriesItem = {
@@ -63,6 +63,12 @@ type LiveResponse = ReportMetrics & {
   timezone: string
 }
 
+type ReportsConfig = {
+  live_timeout_sec?: number | null
+  live_lookback_hours?: number | null
+  run_timeout_sec?: number | null
+}
+
 type RangeKey = 'd-1' | 'month' | '3m' | '6m' | '12m' | 'all'
 
 const rangeOptions: RangeKey[] = ['d-1', 'month', '3m', '6m', '12m', 'all']
@@ -87,6 +93,12 @@ export default function Reports() {
   const [seriesError, setSeriesError] = useState('')
   const [liveLoading, setLiveLoading] = useState(true)
   const [liveError, setLiveError] = useState('')
+  const [configLoading, setConfigLoading] = useState(true)
+  const [configSaving, setConfigSaving] = useState(false)
+  const [configStatus, setConfigStatus] = useState('')
+  const [liveTimeout, setLiveTimeout] = useState('')
+  const [liveLookback, setLiveLookback] = useState('')
+  const [runTimeout, setRunTimeout] = useState('')
 
   const formatter = useMemo(() => new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }), [locale])
   const compactFormatter = useMemo(() => new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 2 }), [locale])
@@ -113,6 +125,32 @@ export default function Reports() {
       hour: '2-digit',
       minute: '2-digit'
     })
+  }
+
+  const formatTimeOnly = (value: string) => {
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) {
+      return value
+    }
+    return parsed.toLocaleTimeString(locale, {
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  const formatLiveWindow = (start: string, end: string) => {
+    const startDate = new Date(start)
+    const endDate = new Date(end)
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      return t('reports.liveRange')
+    }
+    const sameDay = startDate.toDateString() === endDate.toDateString()
+    if (sameDay) {
+      return `${formatTimeOnly(start)} - ${formatTimeOnly(end)}`
+    }
+    const startLabel = formatDateLong(start)
+    const endLabel = formatDateLong(end)
+    return `${startLabel} - ${endLabel}`
   }
 
   useEffect(() => {
@@ -172,6 +210,48 @@ export default function Reports() {
     }
   }, [])
 
+  useEffect(() => {
+    let active = true
+    setConfigLoading(true)
+    getReportsConfig()
+      .then((data) => {
+        if (!active) return
+        const cfg = data as ReportsConfig
+        setLiveTimeout(cfg.live_timeout_sec ? String(cfg.live_timeout_sec) : '')
+        setLiveLookback(cfg.live_lookback_hours ? String(cfg.live_lookback_hours) : '')
+        setRunTimeout(cfg.run_timeout_sec ? String(cfg.run_timeout_sec) : '')
+      })
+      .catch(() => {
+        if (!active) return
+      })
+      .finally(() => {
+        if (!active) return
+        setConfigLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const handleSaveConfig = async () => {
+    setConfigSaving(true)
+    setConfigStatus('')
+    const payload: ReportsConfig = {
+      live_timeout_sec: liveTimeout ? Number(liveTimeout) : null,
+      live_lookback_hours: liveLookback ? Number(liveLookback) : null,
+      run_timeout_sec: runTimeout ? Number(runTimeout) : null
+    }
+    try {
+      await updateReportsConfig(payload)
+      setConfigStatus(t('reports.settings.saved'))
+    } catch (err) {
+      setConfigStatus(err instanceof Error ? err.message : t('reports.settings.saveFailed'))
+    } finally {
+      setConfigSaving(false)
+    }
+  }
+
   const chartData = useMemo(() => {
     return series.map((item) => ({
       date: item.date,
@@ -209,7 +289,9 @@ export default function Reports() {
         <div className="section-card lg:col-span-3 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">{t('reports.liveResults')}</h3>
-            <span className="text-xs text-fog/60">{t('reports.liveRange')}</span>
+            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-fog">
+              {live ? `${t('reports.liveWindow')}: ${formatLiveWindow(live.start, live.end)}` : t('reports.liveRange')}
+            </span>
           </div>
           {liveLoading && !live && <p className="text-sm text-fog/60">{t('reports.loadingLive')}</p>}
           {liveError && <p className="text-sm text-brass">{liveError}</p>}
@@ -302,6 +384,60 @@ export default function Reports() {
               <p className="text-xs text-fog/50">{t('reports.basedOnDays', { count: summary.days })}</p>
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="section-card space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold">{t('reports.settings.title')}</h3>
+          <p className="text-fog/60">{t('reports.settings.subtitle')}</p>
+        </div>
+        {configLoading && <p className="text-sm text-fog/60">{t('reports.settings.loading')}</p>}
+        {!configLoading && (
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="space-y-2">
+              <label className="text-sm text-fog/70">{t('reports.settings.liveTimeout')}</label>
+              <input
+                className="input-field"
+                type="number"
+                min={0}
+                placeholder="60"
+                value={liveTimeout}
+                onChange={(e) => setLiveTimeout(e.target.value)}
+              />
+              <p className="text-xs text-fog/50">{t('reports.settings.liveTimeoutHint')}</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-fog/70">{t('reports.settings.liveLookback')}</label>
+              <input
+                className="input-field"
+                type="number"
+                min={0}
+                placeholder="6"
+                value={liveLookback}
+                onChange={(e) => setLiveLookback(e.target.value)}
+              />
+              <p className="text-xs text-fog/50">{t('reports.settings.liveLookbackHint')}</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-fog/70">{t('reports.settings.runTimeout')}</label>
+              <input
+                className="input-field"
+                type="number"
+                min={0}
+                placeholder="300"
+                value={runTimeout}
+                onChange={(e) => setRunTimeout(e.target.value)}
+              />
+              <p className="text-xs text-fog/50">{t('reports.settings.runTimeoutHint')}</p>
+            </div>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <button className="btn-primary" onClick={handleSaveConfig} disabled={configSaving}>
+            {configSaving ? t('reports.settings.saving') : t('reports.settings.save')}
+          </button>
+          {configStatus && <span className="text-sm text-fog/60">{configStatus}</span>}
         </div>
       </div>
 

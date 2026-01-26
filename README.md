@@ -51,6 +51,11 @@ cd lightningos-light
 sudo ./install.sh
 ```
 
+**Attention (existing nodes):** If you already have a Lightning node with LND/Bitcoin running, do not use `install.sh`.  
+Follow the Existing Node Guide instead:
+- PT-BR: `docs/13_EXISTING_NODE_GUIDE_PT_BR.md`
+- EN: `docs/14_EXISTING_NODE_GUIDE_EN.md`
+
 Access the UI from another machine on the same LAN:
 `https://<SERVER_LAN_IP>:8443`
 
@@ -112,7 +117,7 @@ Daily routing reports are computed at midnight local time and stored in Postgres
 Schedule:
 - `lightningos-reports.timer` runs `lightningos-reports.service` at `00:00` local time.
 - Manual run: `lightningos-manager reports-run --date YYYY-MM-DD` (defaults to yesterday).
-- Backfill: `lightningos-manager reports-backfill --from YYYY-MM-DD --to YYYY-MM-DD`.
+- Backfill: `lightningos-manager reports-backfill --from YYYY-MM-DD --to YYYY-MM-DD` (default max 730 days; use `--max-days N` to override).
 
 Stored table: `reports_daily`
 - `report_date` (DATE, local day)

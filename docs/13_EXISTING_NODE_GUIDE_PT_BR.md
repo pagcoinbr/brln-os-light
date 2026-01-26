@@ -8,6 +8,8 @@
 
 ## Premissas
 - Dados em /data/lnd e /data/bitcoin.
+- Se o seu Bitcoin Core esta em outro diretorio (ex: /mnt/bitcoin-data), crie um bind mount ou symlink para /data/bitcoin (o LightningOS so le /data/bitcoin/bitcoin.conf).
+- Se voce ja usa /home/admin/.lnd e /home/admin/.bitcoin, o instalador guiado pode criar /data/lnd e /data/bitcoin apontando para esses caminhos.
 - Usuario admin com links simbolicos /home/admin/.lnd -> /data/lnd e /home/admin/.bitcoin -> /data/bitcoin.
 - Alternativa: usuarios lnd e bitcoin com dados em /data, e o admin nos grupos lnd e bitcoin.
 
@@ -15,6 +17,26 @@
 ```bash
 git clone https://github.com/jvxis/brln-os-light
 cd brln-os-light/lightningos-light
+```
+
+## Instalacao guiada (opcional)
+Se voce ja tem LND e Bitcoin Core rodando, pode usar o instalador guiado:
+```bash
+sudo ./install_existing.sh
+```
+Ele pergunta sobre Go/npm (necessarios para build), Postgres, terminal e ajustes basicos.
+Quando voce optar por Postgres, o script cria os usuarios e o banco do LightningOS e preenche o secrets.env automaticamente.
+O script tambem cria/atualiza os services do systemd com os usuarios informados:
+- lightningos-manager: usa o Manager service user/group escolhidos.
+- lightningos-reports: usa o mesmo user/group do manager.
+- lightningos-terminal: usa o usuario informado para o terminal.
+Para SupplementaryGroups, o script so adiciona grupos que existem no host.
+
+Se o script nao estiver executavel:
+```bash
+chmod +x install_existing.sh
+# ou:
+sudo bash install_existing.sh
 ```
 
 ## Importante sobre /data/lnd
@@ -90,10 +112,38 @@ sudo ${EDITOR:-nano} /etc/lightningos/config.yaml
 - lnd.grpc_host: "127.0.0.1:10009"
 - lnd.tls_cert_path: "/data/lnd/tls.cert"
 - lnd.admin_macaroon_path: "/data/lnd/data/chain/bitcoin/mainnet/admin.macaroon"
-- bitcoin_remote.rpchost: "127.0.0.1:8332"
-- bitcoin_remote.zmq_rawblock: "tcp://127.0.0.1:28332"
-- bitcoin_remote.zmq_rawtx: "tcp://127.0.0.1:28333"
+- bitcoin_remote.rpchost: "bitcoin.br-ln.com:8085"
+- bitcoin_remote.zmq_rawblock: "tcp://bitcoin.br-ln.com:28332"
+- bitcoin_remote.zmq_rawtx: "tcp://bitcoin.br-ln.com:28333"
 - postgres.db_name: "lnd" (somente se o LND usa Postgres; se usa Bolt/SQLite, este campo nao e usado)
+
+## Bitcoin RPC (local e remoto)
+- BITCOIN_RPC_USER e BITCOIN_RPC_PASS em /etc/lightningos/secrets.env sao para o Bitcoin remoto (normalmente preenchidos pelo wizard).
+- Bitcoin local e lido de /data/bitcoin/bitcoin.conf ou do bloco [Bitcoind] em /data/lnd/lnd.conf.
+- Para o LightningOS reconhecer como local, o bitcoind.rpchost pode ser 127.0.0.1, localhost ou o IP da propria maquina.
+- Opcional: defina BITCOIN_SOURCE=local ou BITCOIN_SOURCE=remote no secrets.env para forcar o modo.
+- Se voce usa rpcauth, precisa do usuario e da senha original (o hash do rpcauth sozinho nao serve) ou crie um usuario rpcuser/rpcpassword dedicado.
+- Se voce usa o Bitcoin remoto do clube, pode manter bitcoin.br-ln.com:8085 e os ZMQs do template.
+
+Exemplo minimo de bitcoin.conf (local):
+```
+server=1
+rpcuser=usuario_rpc
+rpcpassword=senha_rpc
+rpcallowip=127.0.0.1
+zmqpubrawblock=tcp://127.0.0.1:28332
+zmqpubrawtx=tcp://127.0.0.1:28333
+```
+
+Nota: se voce usa rpcport diferente, o LightningOS usa essa porta para o RPC local ao ler /data/bitcoin/bitcoin.conf.
+
+Teste RPC local (opcional):
+```bash
+bitcoin-cli -conf=/data/bitcoin/bitcoin.conf getblockchaininfo
+# ou, se nao tiver bitcoin-cli:
+curl --user usuario_rpc:senha_rpc --data-binary '{"jsonrpc":"1.0","id":"curl","method":"getblockchaininfo","params":[]}' \
+  -H 'content-type:text/plain;' http://127.0.0.1:8332/
+```
 
 ## Secrets (credenciais e DSNs)
 1) Copie o template:
@@ -105,9 +155,12 @@ sudo chmod 640 /etc/lightningos/secrets.env
 ```
 
 2) Preencha:
-- BITCOIN_RPC_USER e BITCOIN_RPC_PASS
+- BITCOIN_RPC_USER e BITCOIN_RPC_PASS (apenas para Bitcoin remoto)
 - NOTIFICATIONS_PG_DSN e NOTIFICATIONS_PG_ADMIN_DSN
 - LND_PG_DSN somente se o LND usa Postgres
+- Opcional: BITCOIN_SOURCE=local ou BITCOIN_SOURCE=remote para forcar o modo
+- Opcional: NOTIFICATIONS_FORWARDS_BACKFILL=1 para backfill completo de forwards (ver secao abaixo)
+- Opcional: REPORTS_LIVE_TIMEOUT_SEC e REPORTS_LIVE_LOOKBACK_HOURS para ajustar o relatorio ao vivo (ver secao abaixo)
 
 Exemplo de DSNs:
 ```
@@ -115,6 +168,53 @@ NOTIFICATIONS_PG_DSN=postgres://losapp:SENHA@127.0.0.1:5432/lightningos?sslmode=
 NOTIFICATIONS_PG_ADMIN_DSN=postgres://losadmin:SENHA@127.0.0.1:5432/postgres?sslmode=disable
 LND_PG_DSN=postgres://lndpg:SENHA@127.0.0.1:5432/lnd?sslmode=disable
 ```
+
+## Relatorios ao vivo (timeout/volume alto)
+Em nodes com volume muito alto, o relatorio ao vivo (hoje 00:00 -> agora) pode estourar timeout.
+Voce pode aumentar o timeout e/ou reduzir a janela:
+```
+REPORTS_LIVE_TIMEOUT_SEC=60
+REPORTS_LIVE_LOOKBACK_HOURS=6
+```
+
+Depois disso, reinicie o manager:
+```bash
+sudo systemctl restart lightningos-manager
+```
+
+## Relatorio diario (reports-run) - timeout
+Se o relatorio diario estiver falhando em nodes com alto volume, aumente o timeout:
+```
+REPORTS_RUN_TIMEOUT_SEC=300
+```
+Depois reinicie o timer/servico ou rode manualmente:
+```bash
+sudo systemctl restart lightningos-reports.timer
+# ou manual:
+/opt/lightningos/manager/lightningos-manager reports-run
+```
+
+## Notificacoes - Backfill de forwards (opcional)
+Por padrao o LightningOS evita backfill completo de forwards (nodes com historico grande podem levar horas).
+Se voce quiser trazer todo o historico de forwards:
+1) Edite o secrets.env:
+```bash
+sudo ${EDITOR:-nano} /etc/lightningos/secrets.env
+```
+2) Adicione:
+```
+NOTIFICATIONS_FORWARDS_BACKFILL=1
+```
+3) Zere o cursor (opcional, recomendado para forcar backfill):
+```bash
+psql "$NOTIFICATIONS_PG_DSN" -c "delete from notification_cursors where key in ('forwards_after','forwards_offset');"
+```
+4) Reinicie o manager:
+```bash
+sudo systemctl restart lightningos-manager
+```
+
+Para voltar ao modo rapido, remova a variavel NOTIFICATIONS_FORWARDS_BACKFILL do secrets.env e reinicie o manager.
 
 ## Postgres - Trilha A (LND em Postgres)
 1) Verifique o backend do LND:
@@ -169,10 +269,44 @@ sudo -u postgres psql -c "create database lightningos owner losapp;"
 4) No config.yaml:
 - postgres.db_name: "lnd" (pode manter o padrao; nao e usado se o LND nao usa Postgres)
 
+## Atualização dos Relatórios
+### 1) Sincronização de custos e lucros diários
+Comando para calcular e armazenar os custos e lucros diários, garantindo que os relatórios financeiros apresentem informações corretas e completas.
+```bash
+/opt/lightningos/manager/lightningos-manager reports-backfill --from YYYY-MM-DD --to YYYY-MM-DD
+```
+
+### 2) Agendamento diário de atualização
+Configure um systemd timer para executar diariamente um serviço que atualiza o banco de dados com os dados do dia anterior.
+```bash
+sudo cp templates/systemd/lightningos-reports.timer \
+  /etc/systemd/system/lightningos-reports.timer
+```
+
+```bash
+sudo cp templates/systemd/lightningos-reports.service \
+  /etc/systemd/system/lightningos-reports.service
+```
+
+### 3) Ajustes recomendados
+Edite o arquivo lightningos-reports.service e ajuste conforme o seu ambiente:
+- User=admin
+- Group=admin
+- SupplementaryGroups=systemd-journal (somente se existir)
+```bash
+sudo ${EDITOR:-nano} /etc/systemd/system/lightningos-reports.service
+```
+
+### 4) Habilite e inicie
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now lightningos-reports.timer
+```
+
 ## Systemd do manager
 1) Copie a unit e ajuste User/Group:
 ```bash
-sudo cp lightningos-light/templates/systemd/lightningos-manager.service \
+sudo cp templates/systemd/lightningos-manager.service \
   /etc/systemd/system/lightningos-manager.service
 sudo ${EDITOR:-nano} /etc/systemd/system/lightningos-manager.service
 ```
@@ -180,7 +314,7 @@ sudo ${EDITOR:-nano} /etc/systemd/system/lightningos-manager.service
 2) Ajustes recomendados:
 - User=admin
 - Group=admin
-- SupplementaryGroups=lnd bitcoin systemd-journal docker
+- SupplementaryGroups=lnd bitcoin systemd-journal docker (somente os grupos que existirem)
 
 3) Habilite e inicie:
 ```bash

@@ -66,7 +66,7 @@ func runReports(args []string) {
     logger.Fatalf("reports-run failed: %v", err)
   }
 
-  ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+  ctx, cancel := context.WithTimeout(context.Background(), reportsRunTimeout())
   defer cancel()
 
   pool, err := pgxpool.New(ctx, dsn)
@@ -75,7 +75,8 @@ func runReports(args []string) {
   }
   defer pool.Close()
 
-  svc := reports.NewService(pool, lndclient.New(cfg, logger), logger)
+  lnd := lndclient.New(cfg, logger)
+  svc := reports.NewService(pool, lnd, logger)
   if err := svc.EnsureSchema(ctx); err != nil {
     logger.Fatalf("reports-run failed: %v", err)
   }
@@ -90,7 +91,7 @@ func runReports(args []string) {
     reportDate = parsed
   }
 
-  row, err := svc.RunDaily(ctx, reportDate, loc)
+  row, err := svc.RunDaily(ctx, reportDate, loc, nil)
   if err != nil {
     logger.Fatalf("reports-run failed: %v", err)
   }
@@ -109,6 +110,7 @@ func runReportsBackfill(args []string) {
   configPath := fs.String("config", "/etc/lightningos/config.yaml", "Path to config.yaml")
   fromStr := fs.String("from", "", "Start date (YYYY-MM-DD)")
   toStr := fs.String("to", "", "End date (YYYY-MM-DD)")
+  maxDays := fs.Int("max-days", 0, "Override max range in days (0 uses default limit)")
   _ = fs.Parse(args)
 
   if strings.TrimSpace(*fromStr) == "" || strings.TrimSpace(*toStr) == "" {
@@ -132,7 +134,8 @@ func runReportsBackfill(args []string) {
   }
   defer pool.Close()
 
-  svc := reports.NewService(pool, lndclient.New(cfg, logger), logger)
+  lnd := lndclient.New(cfg, logger)
+  svc := reports.NewService(pool, lnd, logger)
   schemaCtx, schemaCancel := context.WithTimeout(context.Background(), 30*time.Second)
   if err := svc.EnsureSchema(schemaCtx); err != nil {
     schemaCancel()
@@ -149,14 +152,31 @@ func runReportsBackfill(args []string) {
   if err != nil {
     logger.Fatalf("reports-backfill failed: invalid --to date")
   }
-  if err := reports.ValidateCustomRange(startDate, endDate); err != nil {
-    logger.Fatalf("reports-backfill failed: %v", err)
+  if endDate.Before(startDate) {
+    logger.Fatalf("reports-backfill failed: invalid range")
+  }
+  limit := *maxDays
+  if limit <= 0 {
+    limit = reports.CustomRangeDaysLimit()
+  }
+  days := int(endDate.Sub(startDate).Hours()/24) + 1
+  if days > limit {
+    logger.Fatalf("reports-backfill failed: range too large (max %d days)", limit)
   }
 
   logger.Printf("reports: backfill %s -> %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
+
+  startLocal := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, loc)
+  endLocal := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 23, 59, 59, 0, loc)
+  rebalanceByDay, err := reports.FetchRebalanceFeesByDay(context.Background(), lnd, uint64(startLocal.UTC().Unix()), uint64(endLocal.UTC().Unix()), loc)
+  if err != nil {
+    logger.Fatalf("reports-backfill failed: %v", err)
+  }
   for day := startDate; !day.After(endDate); day = day.AddDate(0, 0, 1) {
-    dayCtx, dayCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-    row, err := svc.RunDaily(dayCtx, day, loc)
+    dayCtx, dayCancel := context.WithTimeout(context.Background(), reportsRunTimeout())
+    dayKey := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, loc)
+    override := rebalanceByDay[dayKey]
+    row, err := svc.RunDaily(dayCtx, day, loc, &override)
     dayCancel()
     if err != nil {
       logger.Fatalf("reports-backfill failed on %s: %v", day.Format("2006-01-02"), err)
@@ -169,4 +189,15 @@ func runReportsBackfill(args []string) {
       row.Metrics.NetRoutingProfitSat,
     )
   }
+}
+
+func reportsRunTimeout() time.Duration {
+  raw := strings.TrimSpace(os.Getenv("REPORTS_RUN_TIMEOUT_SEC"))
+  if raw == "" {
+    return 2 * time.Minute
+  }
+  if parsed, err := time.ParseDuration(raw + "s"); err == nil && parsed > 0 {
+    return parsed
+  }
+  return 2 * time.Minute
 }

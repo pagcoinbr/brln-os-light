@@ -43,6 +43,7 @@ const (
   statusCacheOK = 30 * time.Second
   statusCacheErr = 45 * time.Second
   statusCacheTimeout = 60 * time.Second
+  maxGRPCMsgSize = 32 * 1024 * 1024
 )
 
 type macaroonCredential struct {
@@ -107,7 +108,10 @@ func (c *Client) dial(ctx context.Context, withMacaroon bool) (*grpc.ClientConn,
   }
 
   creds := credentials.NewClientTLSFromCert(certPool, "")
-  opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+  opts := []grpc.DialOption{
+    grpc.WithTransportCredentials(creds),
+    grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxGRPCMsgSize)),
+  }
 
   if withMacaroon {
     macBytes, err := os.ReadFile(c.cfg.LND.AdminMacaroonPath)
@@ -585,14 +589,47 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
   client := lnrpc.NewLightningClient(conn)
 
   invoices, invErr := client.ListInvoices(ctx, &lnrpc.ListInvoiceRequest{Reversed: true, NumMaxInvoices: uint64(limit)})
-  payments, payErr := client.ListPayments(ctx, &lnrpc.ListPaymentsRequest{IncludeIncomplete: true, MaxPayments: uint64(limit)})
+  payments, payErr := client.ListPayments(ctx, &lnrpc.ListPaymentsRequest{
+    IncludeIncomplete: true,
+    MaxPayments: uint64(limit),
+    Reversed: true,
+  })
+  pubkey := strings.TrimSpace(c.CachedPubkey())
+  if pubkey == "" {
+    if info, infoErr := client.GetInfo(ctx, &lnrpc.GetInfoRequest{}); infoErr == nil && info != nil {
+      pubkey = strings.TrimSpace(info.IdentityPubkey)
+    }
+  }
+
+  rebalanceHashes := map[string]struct{}{}
+  if payErr == nil {
+    for _, pay := range payments.Payments {
+      if pay == nil || pay.Status != lnrpc.Payment_SUCCEEDED {
+        continue
+      }
+      if isSelfPayment(ctx, pubkey, client, pay) {
+        hash := strings.ToLower(strings.TrimSpace(pay.PaymentHash))
+        if hash != "" {
+          rebalanceHashes[hash] = struct{}{}
+        }
+      }
+    }
+  }
 
   var items []RecentActivity
   if invErr == nil {
     for _, inv := range invoices.Invoices {
+      if inv.State != lnrpc.Invoice_SETTLED {
+        continue
+      }
       hash := ""
       if len(inv.RHash) > 0 {
         hash = hex.EncodeToString(inv.RHash)
+      }
+      if hash != "" {
+        if _, ok := rebalanceHashes[strings.ToLower(strings.TrimSpace(hash))]; ok {
+          continue
+        }
       }
       items = append(items, RecentActivity{
         Type: "invoice",
@@ -608,6 +645,12 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
   }
   if payErr == nil {
     for _, pay := range payments.Payments {
+      if pay.Status != lnrpc.Payment_SUCCEEDED {
+        continue
+      }
+      if isSelfPayment(ctx, pubkey, client, pay) {
+        continue
+      }
       items = append(items, RecentActivity{
         Type: "payment",
         Network: "lightning",
@@ -624,6 +667,54 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
   return items, nil
 }
 
+func isSelfPayment(ctx context.Context, pubkey string, client lnrpc.LightningClient, pay *lnrpc.Payment) bool {
+  if pay == nil || pubkey == "" {
+    return false
+  }
+
+  trimmed := strings.TrimSpace(pay.PaymentRequest)
+  if trimmed != "" {
+    decoded, err := client.DecodePayReq(ctx, &lnrpc.PayReqString{PayReq: trimmed})
+    if err == nil && decoded != nil && strings.EqualFold(decoded.Destination, pubkey) {
+      return true
+    }
+  }
+
+  route := rebalanceRouteFromPayment(pay)
+  if route == nil {
+    return false
+  }
+  hops := route.GetHops()
+  if len(hops) == 0 {
+    return false
+  }
+  lastHop := strings.TrimSpace(hops[len(hops)-1].PubKey)
+  if lastHop == "" {
+    return false
+  }
+  return strings.EqualFold(lastHop, pubkey)
+}
+
+func rebalanceRouteFromPayment(pay *lnrpc.Payment) *lnrpc.Route {
+  if pay == nil {
+    return nil
+  }
+  for _, attempt := range pay.Htlcs {
+    if attempt == nil || attempt.Route == nil {
+      continue
+    }
+    if attempt.Status == lnrpc.HTLCAttempt_SUCCEEDED {
+      return attempt.Route
+    }
+  }
+  for _, attempt := range pay.Htlcs {
+    if attempt != nil && attempt.Route != nil {
+      return attempt.Route
+    }
+  }
+  return nil
+}
+
 func (c *Client) ListOnchain(ctx context.Context, limit int) ([]RecentActivity, error) {
   if limit <= 0 {
     limit = 20
@@ -636,9 +727,14 @@ func (c *Client) ListOnchain(ctx context.Context, limit int) ([]RecentActivity, 
   defer conn.Close()
 
   client := lnrpc.NewLightningClient(conn)
-  resp, err := client.GetTransactions(ctx, &lnrpc.GetTransactionsRequest{
+  req := &lnrpc.GetTransactionsRequest{
     MaxTransactions: uint32(limit),
-  })
+  }
+  if info, infoErr := client.GetInfo(ctx, &lnrpc.GetInfoRequest{}); infoErr == nil {
+    req.StartHeight = int32(info.BlockHeight)
+    req.EndHeight = -1
+  }
+  resp, err := client.GetTransactions(ctx, req)
   if err != nil {
     return nil, err
   }
@@ -764,6 +860,14 @@ func (c *Client) ListPendingChannels(ctx context.Context) ([]PendingChannelInfo,
     }
     if alias := aliasMap[pubkey]; alias != "" {
       return alias
+    }
+    info, err := client.GetNodeInfo(ctx, &lnrpc.NodeInfoRequest{PubKey: pubkey, IncludeChannels: false})
+    if err == nil && info.GetNode() != nil {
+      alias := info.GetNode().Alias
+      if alias != "" {
+        aliasMap[pubkey] = alias
+        return alias
+      }
     }
     return ""
   }

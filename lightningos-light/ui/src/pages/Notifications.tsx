@@ -40,13 +40,15 @@ const feeMsatTotal = (feeSat: number, feeMsat?: number) => {
   return Math.max(0, feeSat) * 1000
 }
 
-const formatFeeDisplay = (feeSat: number, feeMsat?: number) => {
+const formatFeeDisplay = (locale: string, feeSat: number, feeMsat?: number) => {
   const msat = feeMsatTotal(feeSat, feeMsat)
   if (msat <= 0) return ''
   const sats = msat / 1000
-  if (sats >= 1) return `${Math.round(sats)} sats`
-  const trimmed = sats.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
-  return `${trimmed} sats`
+  const formatter = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+  return `${formatter.format(sats)} sats`
 }
 
 const formatFeeRate = (amount: number, feeSat: number, feeMsat?: number) => {
@@ -76,6 +78,7 @@ const mempoolTxLink = (txid?: string) => {
 export default function Notifications() {
   const { t, i18n } = useTranslation()
   const locale = getLocale(i18n.language)
+  const limitOptions = [200, 500, 1000]
 
   const formatTimestamp = (value: string) => {
     if (!value) return t('common.unknownTime')
@@ -103,6 +106,8 @@ export default function Notifications() {
         return t('notifications.type.forward')
       case 'rebalance':
         return t('notifications.type.rebalance')
+      case 'keysend':
+        return t('notifications.type.keysend')
       default:
         if (!value) return ''
         return value.charAt(0).toUpperCase() + value.slice(1)
@@ -141,7 +146,9 @@ export default function Notifications() {
   const [status, setStatus] = useState(t('notifications.loading'))
   const [streamState, setStreamState] = useState<'idle' | 'waiting' | 'reconnecting' | 'error'>('idle')
   const streamErrors = useRef(0)
-  const [filter, setFilter] = useState<'all' | 'onchain' | 'lightning' | 'channel' | 'forward' | 'rebalance'>('all')
+  const [filter, setFilter] = useState<'all' | 'onchain' | 'lightning' | 'keysend' | 'channel' | 'forward' | 'rebalance'>('all')
+  const [limit, setLimit] = useState(200)
+  const limitRef = useRef(limit)
   const [telegramConfig, setTelegramConfig] = useState<TelegramBackupConfig | null>(null)
   const [telegramToken, setTelegramToken] = useState('')
   const [telegramChatId, setTelegramChatId] = useState('')
@@ -151,11 +158,15 @@ export default function Notifications() {
   const [telegramOpen, setTelegramOpen] = useState(false)
 
   useEffect(() => {
+    limitRef.current = limit
+  }, [limit])
+
+  useEffect(() => {
     let mounted = true
     const load = async () => {
       setStatus(t('notifications.loading'))
       try {
-        const res = await getNotifications(200)
+        const res = await getNotifications(limit)
         if (!mounted) return
         setItems(Array.isArray(res?.items) ? res.items : [])
         setStatus('')
@@ -168,7 +179,7 @@ export default function Notifications() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [limit])
 
   useEffect(() => {
     let mounted = true
@@ -205,7 +216,7 @@ export default function Notifications() {
         setItems((prev) => {
           const next = [payload, ...prev.filter((item) => item.id !== payload.id)]
           next.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime())
-          return next.slice(0, 200)
+          return next.slice(0, limitRef.current)
         })
       } catch {
         // ignore malformed payloads
@@ -229,7 +240,9 @@ export default function Notifications() {
   }, [items])
 
   const filtered = useMemo(() => {
-    const base = filter === 'all' ? items : items.filter((item) => item.type === filter)
+    const base = filter === 'all'
+      ? items
+      : items.filter((item) => item.type === filter)
     return base.filter((item) => {
       if (item.type === 'rebalance') return true
       if (!item.payment_hash) return true
@@ -299,13 +312,19 @@ export default function Notifications() {
             <h2 className="text-2xl font-semibold">{t('notifications.title')}</h2>
             <p className="text-fog/60">{t('notifications.subtitle')}</p>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
             <button className={filter === 'all' ? 'btn-primary' : 'btn-secondary'} onClick={() => setFilter('all')}>{t('common.all')}</button>
             <button className={filter === 'onchain' ? 'btn-primary' : 'btn-secondary'} onClick={() => setFilter('onchain')}>{t('notifications.filter.onchain')}</button>
             <button className={filter === 'lightning' ? 'btn-primary' : 'btn-secondary'} onClick={() => setFilter('lightning')}>{t('notifications.filter.lightning')}</button>
+            <button className={filter === 'keysend' ? 'btn-primary' : 'btn-secondary'} onClick={() => setFilter('keysend')}>{t('notifications.filter.keysend')}</button>
             <button className={filter === 'channel' ? 'btn-primary' : 'btn-secondary'} onClick={() => setFilter('channel')}>{t('notifications.filter.channels')}</button>
             <button className={filter === 'forward' ? 'btn-primary' : 'btn-secondary'} onClick={() => setFilter('forward')}>{t('notifications.filter.forwards')}</button>
             <button className={filter === 'rebalance' ? 'btn-primary' : 'btn-secondary'} onClick={() => setFilter('rebalance')}>{t('notifications.filter.rebalance')}</button>
+            <select className="btn-secondary text-xs" value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
+              {limitOptions.map((value) => (
+                <option key={value} value={value}>{t('notifications.linesOption', { count: value })}</option>
+              ))}
+            </select>
           </div>
         </div>
       </div>
@@ -394,19 +413,25 @@ export default function Notifications() {
                 const peerLabel = peer
                   ? item.type === 'rebalance'
                     ? t('notifications.routeLabel', { peer })
-                    : t('notifications.peerLabel', { peer })
+                    : item.type === 'keysend'
+                      ? item.direction === 'in'
+                        ? t('notifications.peerFrom', { peer })
+                        : item.direction === 'out'
+                          ? t('notifications.peerTo', { peer })
+                          : t('notifications.peerLabel', { peer })
+                      : t('notifications.peerLabel', { peer })
                   : ''
                 const feeRate = formatFeeRate(item.amount_sat, item.fee_sat, item.fee_msat)
                 let feeDetail = ''
                 if (feeRate) {
                   if (item.type === 'forward') {
                     feeDetail = t('notifications.feeEarned', {
-                      fee: formatFeeDisplay(item.fee_sat, item.fee_msat),
+                      fee: formatFeeDisplay(locale, item.fee_sat, item.fee_msat),
                       rate: feeRate
                     })
                   } else if (item.type === 'rebalance') {
                     feeDetail = t('notifications.feeDetail', {
-                      fee: formatFeeDisplay(item.fee_sat, item.fee_msat),
+                      fee: formatFeeDisplay(locale, item.fee_sat, item.fee_msat),
                       rate: feeRate
                     })
                   }
@@ -492,8 +517,8 @@ export default function Notifications() {
                     <span className={`text-xs font-mono ${arrow.tone}`}>{arrow.label}</span>
                     <div className="text-right">
                       <div>{item.amount_sat} sats</div>
-                      {formatFeeDisplay(item.fee_sat, item.fee_msat) && (
-                        <div className="text-xs text-fog/50">{t('notifications.feeLabel', { fee: formatFeeDisplay(item.fee_sat, item.fee_msat) })}</div>
+                      {formatFeeDisplay(locale, item.fee_sat, item.fee_msat) && (
+                        <div className="text-xs text-fog/50">{t('notifications.feeLabel', { fee: formatFeeDisplay(locale, item.fee_sat, item.fee_msat) })}</div>
                       )}
                     </div>
                   </div>

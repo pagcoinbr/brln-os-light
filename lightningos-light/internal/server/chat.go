@@ -45,6 +45,7 @@ type ChatService struct {
   mu sync.Mutex
   started bool
   stop chan struct{}
+  notifier *Notifier
 }
 
 func NewChatService(lnd *lndclient.Client, logger *log.Logger) *ChatService {
@@ -53,6 +54,12 @@ func NewChatService(lnd *lndclient.Client, logger *log.Logger) *ChatService {
     logger: logger,
     store: newChatStore(chatMessagesPath, chatCursorPath),
   }
+}
+
+func (c *ChatService) AttachNotifier(notifier *Notifier) {
+  c.mu.Lock()
+  c.notifier = notifier
+  c.mu.Unlock()
 }
 
 func (c *ChatService) Start() {
@@ -112,7 +119,43 @@ func (c *ChatService) SendMessage(ctx context.Context, peerPubkey string, messag
   if err := c.store.append(msg); err != nil {
     c.logger.Printf("chat: failed to append outbound message: %v", err)
   }
+  c.recordKeysendNotification(msg)
   return msg, nil
+}
+
+func (c *ChatService) recordKeysendNotification(msg ChatMessage) {
+  hash := normalizeHash(msg.PaymentHash)
+  if hash == "" {
+    return
+  }
+
+  c.mu.Lock()
+  notifier := c.notifier
+  c.mu.Unlock()
+  if notifier == nil {
+    return
+  }
+
+  peerAlias := ""
+  if msg.PeerPubkey != "" {
+    peerAlias = notifier.lookupNodeAlias(msg.PeerPubkey)
+  }
+
+  evt := Notification{
+    OccurredAt: msg.Timestamp,
+    Type: "keysend",
+    Action: "sent",
+    Direction: "out",
+    Status: "SUCCEEDED",
+    AmountSat: 1,
+    PeerPubkey: msg.PeerPubkey,
+    PeerAlias: peerAlias,
+    PaymentHash: hash,
+  }
+
+  ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+  _, _ = notifier.upsertNotification(ctx, fmt.Sprintf("payment:%s", hash), evt)
+  cancel()
 }
 
 func (c *ChatService) runInvoices() {

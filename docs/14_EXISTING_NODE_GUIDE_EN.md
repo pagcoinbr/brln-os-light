@@ -8,6 +8,8 @@
 
 ## Assumptions
 - Data lives in /data/lnd and /data/bitcoin.
+- If your Bitcoin Core data lives elsewhere (e.g. /mnt/bitcoin-data), create a bind mount or symlink to /data/bitcoin (LightningOS only reads /data/bitcoin/bitcoin.conf).
+- If you already use /home/admin/.lnd and /home/admin/.bitcoin, the guided installer can create /data/lnd and /data/bitcoin pointing to those paths.
 - admin user has symlinks /home/admin/.lnd -> /data/lnd and /home/admin/.bitcoin -> /data/bitcoin.
 - Alternative: dedicated lnd and bitcoin users with data in /data, and admin in lnd and bitcoin groups.
 
@@ -15,6 +17,26 @@
 ```bash
 git clone https://github.com/jvxis/brln-os-light
 cd brln-os-light/lightningos-light
+```
+
+## Guided install (optional)
+If you already have LND and Bitcoin Core running, you can use the guided installer:
+```bash
+sudo ./install_existing.sh
+```
+It asks about Go/npm (required for build), Postgres, terminal, and basic setup.
+If you opt into Postgres, the script creates the LightningOS roles/DB and fills secrets.env automatically.
+The script also writes the systemd units with the users you provide:
+- lightningos-manager: uses the Manager service user/group.
+- lightningos-reports: uses the same user/group as the manager.
+- lightningos-terminal: uses the terminal user you provide.
+For SupplementaryGroups, it only adds groups that exist on the host.
+
+If the script is not executable:
+```bash
+chmod +x install_existing.sh
+# or:
+sudo bash install_existing.sh
 ```
 
 ## Important about /data/lnd
@@ -95,6 +117,34 @@ sudo ${EDITOR:-nano} /etc/lightningos/config.yaml
 - bitcoin_remote.zmq_rawtx: "tcp://127.0.0.1:28333"
 - postgres.db_name: "lnd" (only if LND uses Postgres; if LND uses Bolt/SQLite, this field is not used)
 
+## Bitcoin RPC (local and remote)
+- LightningOS does not read bitcoin.conf automatically.
+- It uses credentials from /etc/lightningos/secrets.env (BITCOIN_RPC_USER/PASS).
+- For local Bitcoin, use the same values from bitcoin.conf (rpcuser/rpcpassword).
+- For LightningOS to recognize local, use 127.0.0.1 in bitcoind.rpchost in lnd.conf (LAN IPs are treated as remote).
+- If you use rpcauth, you need the original username and password (the rpcauth hash alone is not enough) or create a dedicated rpcuser/rpcpassword entry.
+- If you use the club remote Bitcoin, you can keep bitcoin.br-ln.com:8085 and the template ZMQ values.
+
+Minimal bitcoin.conf example (local):
+```
+server=1
+rpcuser=rpc_user
+rpcpassword=rpc_pass
+rpcallowip=127.0.0.1
+zmqpubrawblock=tcp://127.0.0.1:28332
+zmqpubrawtx=tcp://127.0.0.1:28333
+```
+
+Note: if you use a custom rpcport, LightningOS uses that port for local RPC when reading /data/bitcoin/bitcoin.conf.
+
+Local RPC test (optional):
+```bash
+bitcoin-cli -conf=/data/bitcoin/bitcoin.conf getblockchaininfo
+# or, if you do not have bitcoin-cli:
+curl --user rpc_user:rpc_pass --data-binary '{"jsonrpc":"1.0","id":"curl","method":"getblockchaininfo","params":[]}' \
+  -H 'content-type:text/plain;' http://127.0.0.1:8332/
+```
+
 ## Secrets (credentials and DSNs)
 1) Copy the template:
 ```bash
@@ -169,10 +219,44 @@ sudo -u postgres psql -c "create database lightningos owner losapp;"
 4) In config.yaml:
 - postgres.db_name: "lnd" (keep the default; not used if LND does not use Postgres)
 
+## Reports Update
+### 1) Daily cost and profit synchronization
+Command to calculate and store daily costs and profits, ensuring that financial reports display accurate and complete information.
+```bash
+/opt/lightningos/manager/lightningos-manager reports-backfill --from YYYY-MM-DD --to YYYY-MM-DD
+```
+
+### 2) Daily update scheduling
+Configure a systemd timer to run a service daily that updates the database with the previous day's data.
+```bash
+sudo cp templates/systemd/lightningos-reports.timer \
+  /etc/systemd/system/lightningos-reports.timer
+```
+
+```bash
+sudo cp templates/systemd/lightningos-reports.service \
+  /etc/systemd/system/lightningos-reports.service
+```
+
+### 3) Recommended adjustments
+Edit the lightningos-reports.service file and adjust it according to your environment:
+- User=admin
+- Group=admin
+- SupplementaryGroups=systemd-journal (only if it exists)
+```bash
+sudo ${EDITOR:-nano} /etc/systemd/system/lightningos-reports.service
+```
+
+### 4) Enable and start
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now lightningos-reports.timer
+```
+
 ## Manager systemd unit
 1) Copy the unit and edit User/Group:
 ```bash
-sudo cp lightningos-light/templates/systemd/lightningos-manager.service \
+sudo cp templates/systemd/lightningos-manager.service \
   /etc/systemd/system/lightningos-manager.service
 sudo ${EDITOR:-nano} /etc/systemd/system/lightningos-manager.service
 ```
@@ -180,7 +264,7 @@ sudo ${EDITOR:-nano} /etc/systemd/system/lightningos-manager.service
 2) Recommended edits:
 - User=admin
 - Group=admin
-- SupplementaryGroups=lnd bitcoin systemd-journal docker
+- SupplementaryGroups=lnd bitcoin systemd-journal docker (only groups that exist)
 
 3) Enable and start:
 ```bash

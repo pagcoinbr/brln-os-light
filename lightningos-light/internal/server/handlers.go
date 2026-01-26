@@ -9,6 +9,7 @@ import (
   "io"
   "net"
   "net/http"
+  "net/url"
   "os"
   "path/filepath"
   "strconv"
@@ -223,37 +224,95 @@ type postgresResponse struct {
   DBSizeMB int64 `json:"db_size_mb"`
   Connections int64 `json:"connections"`
   Version string `json:"version"`
+  Databases []postgresDatabase `json:"databases,omitempty"`
+}
+
+type postgresDatabase struct {
+  Name string `json:"name"`
+  Source string `json:"source"`
+  SizeMB int64 `json:"size_mb"`
+  Connections int64 `json:"connections"`
+  Available bool `json:"available"`
 }
 
 func (s *Server) handlePostgres(w http.ResponseWriter, r *http.Request) {
   ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
   defer cancel()
 
+  entries := postgresDSNEntries()
+  databases := make([]postgresDatabase, 0, len(entries))
+  version := ""
+
+  for _, entry := range entries {
+    dbName := databaseNameFromDSN(entry.DSN)
+    if dbName == "" {
+      continue
+    }
+    db := postgresDatabase{
+      Name: dbName,
+      Source: entry.Source,
+    }
+    pool, err := pgxpool.New(ctx, entry.DSN)
+    if err == nil {
+      db.Available = true
+      var sizeBytes int64
+      _ = pool.QueryRow(ctx, "select pg_database_size($1)", dbName).Scan(&sizeBytes)
+      db.SizeMB = sizeBytes / (1024 * 1024)
+
+      var connections int64
+      _ = pool.QueryRow(ctx, "select count(*) from pg_stat_activity where datname=$1", dbName).Scan(&connections)
+      db.Connections = connections
+
+      if version == "" {
+        _ = pool.QueryRow(ctx, "show server_version").Scan(&version)
+      }
+      pool.Close()
+    }
+    databases = append(databases, db)
+  }
+
   resp := postgresResponse{
     ServiceActive: system.SystemctlIsActive(ctx, "postgresql"),
     DBName: s.cfg.Postgres.DBName,
+    Databases: databases,
+    Version: version,
   }
 
-  dsn := os.Getenv("LND_PG_DSN")
-  if dsn != "" {
-    pool, err := pgxpool.New(ctx, dsn)
-    if err == nil {
-      defer pool.Close()
-      var sizeBytes int64
-      _ = pool.QueryRow(ctx, "select pg_database_size($1)", s.cfg.Postgres.DBName).Scan(&sizeBytes)
-      resp.DBSizeMB = sizeBytes / (1024 * 1024)
-
-      var connections int64
-      _ = pool.QueryRow(ctx, "select count(*) from pg_stat_activity where datname=$1", s.cfg.Postgres.DBName).Scan(&connections)
-      resp.Connections = connections
-
-      var version string
-      _ = pool.QueryRow(ctx, "show server_version").Scan(&version)
-      resp.Version = version
-    }
+  if len(databases) > 0 {
+    resp.DBName = databases[0].Name
+    resp.DBSizeMB = databases[0].SizeMB
+    resp.Connections = databases[0].Connections
   }
 
   writeJSON(w, http.StatusOK, resp)
+}
+
+type postgresDSNEntry struct {
+  Source string
+  DSN string
+}
+
+func postgresDSNEntries() []postgresDSNEntry {
+  entries := []postgresDSNEntry{}
+  if dsn := strings.TrimSpace(os.Getenv("LND_PG_DSN")); dsn != "" && !isPlaceholderDSN(dsn) {
+    entries = append(entries, postgresDSNEntry{Source: "lnd", DSN: dsn})
+  }
+  if dsn := strings.TrimSpace(os.Getenv("NOTIFICATIONS_PG_DSN")); dsn != "" && !isPlaceholderDSN(dsn) {
+    entries = append(entries, postgresDSNEntry{Source: "lightningos", DSN: dsn})
+  }
+  return entries
+}
+
+func databaseNameFromDSN(raw string) string {
+  if strings.TrimSpace(raw) == "" {
+    return ""
+  }
+  parsed, err := url.Parse(raw)
+  if err != nil {
+    return ""
+  }
+  name := strings.TrimPrefix(parsed.Path, "/")
+  return strings.TrimSpace(name)
 }
 
 type bitcoinStatus struct {
@@ -264,6 +323,8 @@ type bitcoinStatus struct {
   RPCOk bool `json:"rpc_ok"`
   ZMQRawBlockOk bool `json:"zmq_rawblock_ok"`
   ZMQRawTxOk bool `json:"zmq_rawtx_ok"`
+  Version int `json:"version,omitempty"`
+  Subversion string `json:"subversion,omitempty"`
   Chain string `json:"chain,omitempty"`
   Blocks int64 `json:"blocks,omitempty"`
   Headers int64 `json:"headers,omitempty"`
@@ -481,6 +542,10 @@ func (s *Server) bitcoinStatus(ctx context.Context) (bitcoinStatus, error) {
       status.VerificationProgress = info.VerificationProgress
       status.InitialBlockDownload = info.InitialBlockDownload
       status.BestBlockHash = info.BestBlockHash
+      if netInfo, netErr := fetchBitcoinNetworkInfo(ctx, s.cfg.BitcoinRemote.RPCHost, rpcUser, rpcPass); netErr == nil {
+        status.Version = netInfo.Version
+        status.Subversion = netInfo.Subversion
+      }
     } else {
       status.RPCOk = false
     }
@@ -501,9 +566,39 @@ func (s *Server) bitcoinLocalStatusActive(ctx context.Context) (bitcoinStatus, e
     ZMQRawTx: "tcp://127.0.0.1:28333",
   }
   if !fileExists(paths.ComposePath) {
+    cfg, _, err := readBitcoinLocalRPCConfig(ctx)
+    if err == nil && strings.TrimSpace(cfg.Host) != "" {
+      status.RPCHost = cfg.Host
+      if strings.TrimSpace(cfg.ZMQBlock) != "" {
+        status.ZMQRawBlock = cfg.ZMQBlock
+      }
+      if strings.TrimSpace(cfg.ZMQTx) != "" {
+        status.ZMQRawTx = cfg.ZMQTx
+      }
+      if strings.TrimSpace(cfg.User) != "" && strings.TrimSpace(cfg.Pass) != "" {
+        info, rpcErr := fetchBitcoinInfo(ctx, cfg.Host, cfg.User, cfg.Pass)
+        if rpcErr == nil {
+          status.RPCOk = true
+          status.Chain = info.Chain
+          status.Blocks = info.Blocks
+          status.Headers = info.Headers
+          status.VerificationProgress = info.VerificationProgress
+          status.InitialBlockDownload = info.InitialBlockDownload
+          status.BestBlockHash = info.BestBlockHash
+          if netInfo, netErr := fetchBitcoinNetworkInfo(ctx, cfg.Host, cfg.User, cfg.Pass); netErr == nil {
+            status.Version = netInfo.Version
+            status.Subversion = netInfo.Subversion
+          }
+        } else {
+          status.RPCOk = false
+        }
+      }
+    }
+    status.ZMQRawBlockOk = testTCP(status.ZMQRawBlock)
+    status.ZMQRawTxOk = testTCP(status.ZMQRawTx)
     return status, nil
   }
-  info, _, err := fetchBitcoinLocalInfo(ctx, paths)
+  info, netInfo, err := fetchBitcoinLocalInfo(ctx, paths)
   if err == nil {
     status.RPCOk = true
     status.Chain = info.Chain
@@ -512,6 +607,8 @@ func (s *Server) bitcoinLocalStatusActive(ctx context.Context) (bitcoinStatus, e
     status.VerificationProgress = info.VerificationProgress
     status.InitialBlockDownload = info.InitialBlockDownload
     status.BestBlockHash = info.BestBlockHash
+    status.Version = netInfo.Version
+    status.Subversion = netInfo.Subversion
   }
   status.ZMQRawBlockOk = testTCP(status.ZMQRawBlock)
   status.ZMQRawTxOk = testTCP(status.ZMQRawTx)
@@ -521,6 +618,12 @@ func (s *Server) bitcoinLocalStatusActive(ctx context.Context) (bitcoinStatus, e
 func readBitcoinLocalRPCConfig(ctx context.Context) (bitcoinRPCConfig, bool, error) {
   paths := bitcoinCoreAppPaths()
   if !fileExists(paths.ComposePath) {
+    if cfg, ok := readBitcoinConfRPCConfig(paths.ConfigPath); ok {
+      return cfg, false, nil
+    }
+    if cfg, ok := readBitcoindRPCConfigFromLNDConf(); ok {
+      return cfg, false, nil
+    }
     return bitcoinRPCConfig{}, false, errors.New("bitcoin core is not installed")
   }
   raw, updated, err := syncBitcoinCoreRPCAllowList(ctx, paths)
@@ -540,6 +643,121 @@ func readBitcoinLocalRPCConfig(ctx context.Context) (bitcoinRPCConfig, bool, err
     ZMQBlock: zmqBlock,
     ZMQTx: zmqTx,
   }, updated, nil
+}
+
+func readBitcoinConfRPCConfig(path string) (bitcoinRPCConfig, bool) {
+  raw, err := os.ReadFile(path)
+  if err != nil {
+    return bitcoinRPCConfig{}, false
+  }
+  normalized := strings.ReplaceAll(string(raw), "\r\n", "\n")
+  user, pass, zmqBlock, zmqTx := parseBitcoinCoreRPCConfig(normalized)
+  if strings.TrimSpace(user) == "" || strings.TrimSpace(pass) == "" {
+    return bitcoinRPCConfig{}, false
+  }
+  zmqBlock = normalizeLocalZMQ(zmqBlock, "tcp://127.0.0.1:28332")
+  zmqTx = normalizeLocalZMQ(zmqTx, "tcp://127.0.0.1:28333")
+
+  host := "127.0.0.1:8332"
+  if port, ok := parseBitcoinRPCPortFromConf(normalized); ok {
+    host = fmt.Sprintf("127.0.0.1:%d", port)
+  }
+  return bitcoinRPCConfig{
+    Host: host,
+    User: user,
+    Pass: pass,
+    ZMQBlock: zmqBlock,
+    ZMQTx: zmqTx,
+  }, true
+}
+
+func parseBitcoinRPCPortFromConf(raw string) (int, bool) {
+  for _, line := range strings.Split(raw, "\n") {
+    trimmed := strings.TrimSpace(line)
+    if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+      continue
+    }
+    parts := strings.SplitN(trimmed, "=", 2)
+    if len(parts) != 2 {
+      continue
+    }
+    key := strings.TrimSpace(parts[0])
+    if key != "rpcport" {
+      continue
+    }
+    value := strings.TrimSpace(parts[1])
+    if value == "" {
+      continue
+    }
+    port, err := strconv.Atoi(value)
+    if err != nil || port <= 0 {
+      return 0, false
+    }
+    return port, true
+  }
+  return 0, false
+}
+
+func readBitcoindRPCConfigFromLNDConf() (bitcoinRPCConfig, bool) {
+  raw, err := os.ReadFile(lndConfPath)
+  if err != nil {
+    return bitcoinRPCConfig{}, false
+  }
+  lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+
+  inBitcoind := false
+  cfg := bitcoinRPCConfig{
+    Host: "127.0.0.1:8332",
+    ZMQBlock: "tcp://127.0.0.1:28332",
+    ZMQTx: "tcp://127.0.0.1:28333",
+  }
+
+  for _, line := range lines {
+    trimmed := strings.TrimSpace(line)
+    if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+      inBitcoind = strings.EqualFold(trimmed, "[Bitcoind]")
+      continue
+    }
+    if !inBitcoind {
+      continue
+    }
+    if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+      continue
+    }
+    parts := strings.SplitN(trimmed, "=", 2)
+    if len(parts) != 2 {
+      continue
+    }
+    key := strings.TrimSpace(parts[0])
+    val := strings.TrimSpace(parts[1])
+
+    switch key {
+    case "bitcoind.rpchost":
+      if val != "" {
+        host := strings.TrimPrefix(val, "tcp://")
+        if !strings.Contains(host, ":") {
+          host = host + ":8332"
+        }
+        cfg.Host = host
+      }
+    case "bitcoind.rpcuser":
+      cfg.User = val
+    case "bitcoind.rpcpass":
+      cfg.Pass = val
+    case "bitcoind.zmqpubrawblock":
+      cfg.ZMQBlock = normalizeLocalZMQ(val, cfg.ZMQBlock)
+    case "bitcoind.zmqpubrawtx":
+      cfg.ZMQTx = normalizeLocalZMQ(val, cfg.ZMQTx)
+    }
+  }
+
+  if strings.TrimSpace(cfg.Host) == "" {
+    return bitcoinRPCConfig{}, false
+  }
+  if strings.TrimSpace(cfg.User) == "" || strings.TrimSpace(cfg.Pass) == "" {
+    return bitcoinRPCConfig{}, false
+  }
+  return cfg, true
 }
 
 func readBitcoinSecrets() (string, string) {
@@ -1804,9 +2022,7 @@ func (s *Server) handleWalletSummary(w http.ResponseWriter, r *http.Request) {
 
   lightningActivity, _ := s.lnd.ListRecent(ctx, walletActivityFetchLimit)
   hashes := s.walletActivitySet()
-  if len(hashes) == 0 {
-    lightningActivity = lightningActivity[:0]
-  } else {
+  if len(hashes) > 0 {
     filtered := lightningActivity[:0]
     for _, item := range lightningActivity {
       if item.PaymentHash == "" {
@@ -2080,8 +2296,18 @@ type bitcoinInfo struct {
   BestBlockHash string `json:"bestblockhash"`
 }
 
+type bitcoinNetworkInfo struct {
+  Version int `json:"version"`
+  Subversion string `json:"subversion"`
+}
+
 type bitcoinRPCResponse struct {
   Result bitcoinInfo `json:"result"`
+  Error *rpcErrorDetail `json:"error"`
+}
+
+type bitcoinNetworkRPCResponse struct {
+  Result bitcoinNetworkInfo `json:"result"`
   Error *rpcErrorDetail `json:"error"`
 }
 
@@ -2107,11 +2333,22 @@ func parseBitcoinInfo(body []byte) (bitcoinInfo, error) {
   return payload.Result, nil
 }
 
-func doBitcoinRPC(ctx context.Context, url, user, pass string) ([]byte, error) {
+func parseBitcoinNetworkInfo(body []byte) (bitcoinNetworkInfo, error) {
+  var payload bitcoinNetworkRPCResponse
+  if err := json.Unmarshal(body, &payload); err != nil {
+    return bitcoinNetworkInfo{}, err
+  }
+  if payload.Error != nil {
+    return bitcoinNetworkInfo{}, fmt.Errorf(payload.Error.Message)
+  }
+  return payload.Result, nil
+}
+
+func doBitcoinRPC(ctx context.Context, url, user, pass, method string) ([]byte, error) {
   payload := map[string]any{
     "jsonrpc": "1.0",
     "id": "lightningos",
-    "method": "getblockchaininfo",
+    "method": method,
     "params": []any{},
   }
   buf, _ := json.Marshal(payload)
@@ -2141,35 +2378,47 @@ func doBitcoinRPC(ctx context.Context, url, user, pass string) ([]byte, error) {
   return body, nil
 }
 
-func fetchBitcoinInfo(ctx context.Context, host, user, pass string) (bitcoinInfo, error) {
+func fetchBitcoinRPC(ctx context.Context, host, user, pass, method string) ([]byte, error) {
   if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
-    body, err := doBitcoinRPC(ctx, host, user, pass)
-    if err != nil {
-      return bitcoinInfo{}, err
-    }
-    return parseBitcoinInfo(body)
+    return doBitcoinRPC(ctx, host, user, pass, method)
   }
 
-  body, err := doBitcoinRPC(ctx, "http://"+host, user, pass)
+  body, err := doBitcoinRPC(ctx, "http://"+host, user, pass, method)
   if err == nil {
-    return parseBitcoinInfo(body)
+    return body, nil
   }
   var statusErr rpcStatusError
   if err != nil && errors.As(err, &statusErr) {
-    return bitcoinInfo{}, err
+    return nil, err
   }
 
-  body, httpsErr := doBitcoinRPC(ctx, "https://"+host, user, pass)
+  body, httpsErr := doBitcoinRPC(ctx, "https://"+host, user, pass, method)
   if httpsErr == nil {
-    return parseBitcoinInfo(body)
+    return body, nil
   }
   if err != nil && httpsErr != nil {
-    return bitcoinInfo{}, fmt.Errorf("rpc http failed: %v; https failed: %v", err, httpsErr)
+    return nil, fmt.Errorf("rpc http failed: %v; https failed: %v", err, httpsErr)
   }
+  if err != nil {
+    return nil, err
+  }
+  return nil, httpsErr
+}
+
+func fetchBitcoinInfo(ctx context.Context, host, user, pass string) (bitcoinInfo, error) {
+  body, err := fetchBitcoinRPC(ctx, host, user, pass, "getblockchaininfo")
   if err != nil {
     return bitcoinInfo{}, err
   }
-  return bitcoinInfo{}, httpsErr
+  return parseBitcoinInfo(body)
+}
+
+func fetchBitcoinNetworkInfo(ctx context.Context, host, user, pass string) (bitcoinNetworkInfo, error) {
+  body, err := fetchBitcoinRPC(ctx, host, user, pass, "getnetworkinfo")
+  if err != nil {
+    return bitcoinNetworkInfo{}, err
+  }
+  return parseBitcoinNetworkInfo(body)
 }
 
 func testBitcoinRPC(ctx context.Context, host, user, pass string) (bool, error) {
@@ -2218,25 +2467,27 @@ func storeBitcoinSecrets(user, pass string) error {
 }
 
 func readBitcoinSource() string {
-  if detected := detectBitcoinSourceFromLNDConf(); detected != "" {
-    return detected
-  }
-  if value := strings.TrimSpace(os.Getenv("BITCOIN_SOURCE")); value != "" {
-    return strings.ToLower(value)
-  }
-  content, err := os.ReadFile(secretsPath)
-  if err != nil {
-    return "remote"
-  }
-  for _, line := range strings.Split(string(content), "\n") {
-    if strings.HasPrefix(line, "BITCOIN_SOURCE=") {
-      value := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "BITCOIN_SOURCE=")))
-      if value == "local" || value == "remote" {
-        return value
-      }
-    }
-  }
-  return "remote"
+	if value := strings.TrimSpace(os.Getenv("BITCOIN_SOURCE")); value != "" {
+		value = strings.ToLower(value)
+		if value == "local" || value == "remote" {
+			return value
+		}
+	}
+	content, err := os.ReadFile(secretsPath)
+	if err == nil {
+		for _, line := range strings.Split(string(content), "\n") {
+			if strings.HasPrefix(line, "BITCOIN_SOURCE=") {
+				value := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "BITCOIN_SOURCE=")))
+				if value == "local" || value == "remote" {
+					return value
+				}
+			}
+		}
+	}
+	if detected := detectBitcoinSourceFromLNDConf(); detected != "" {
+		return detected
+	}
+	return "remote"
 }
 
 func detectBitcoinSourceFromLNDConf() string {
@@ -2263,13 +2514,90 @@ func detectBitcoinSourceFromLNDConf() string {
       if host == "" {
         continue
       }
-      if strings.HasPrefix(host, "127.0.0.1") || strings.HasPrefix(host, "localhost") {
+      if isLocalRPCHost(host) {
         return "local"
       }
       return "remote"
     }
   }
   return ""
+}
+
+func isLocalRPCHost(value string) bool {
+  host := extractHost(value)
+  if host == "" {
+    return false
+  }
+  lower := strings.ToLower(host)
+  if lower == "localhost" {
+    return true
+  }
+  ip := net.ParseIP(lower)
+  if ip == nil {
+    return false
+  }
+  if ip.IsLoopback() || ip.IsUnspecified() {
+    return true
+  }
+  return isHostIP(ip)
+}
+
+func extractHost(value string) string {
+  trimmed := strings.TrimSpace(value)
+  if trimmed == "" {
+    return ""
+  }
+  if strings.Contains(trimmed, "://") {
+    if parsed, err := url.Parse(trimmed); err == nil && parsed.Host != "" {
+      trimmed = parsed.Host
+    }
+  }
+  if at := strings.LastIndex(trimmed, "@"); at != -1 {
+    trimmed = trimmed[at+1:]
+  }
+  if host, _, err := net.SplitHostPort(trimmed); err == nil {
+    return host
+  }
+  if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+    return strings.TrimSuffix(strings.TrimPrefix(trimmed, "["), "]")
+  }
+  return trimmed
+}
+
+func isHostIP(ip net.IP) bool {
+  for _, addr := range localInterfaceIPs() {
+    if ip.Equal(addr) {
+      return true
+    }
+  }
+  return false
+}
+
+func localInterfaceIPs() []net.IP {
+  ifaces, err := net.Interfaces()
+  if err != nil {
+    return nil
+  }
+  ips := []net.IP{}
+  for _, iface := range ifaces {
+    addrs, err := iface.Addrs()
+    if err != nil {
+      continue
+    }
+    for _, addr := range addrs {
+      switch v := addr.(type) {
+      case *net.IPNet:
+        if v.IP != nil {
+          ips = append(ips, v.IP)
+        }
+      case *net.IPAddr:
+        if v.IP != nil {
+          ips = append(ips, v.IP)
+        }
+      }
+    }
+  }
+  return ips
 }
 
 func storeBitcoinSource(source string) error {

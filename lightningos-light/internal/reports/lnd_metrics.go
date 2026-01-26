@@ -14,7 +14,12 @@ const (
   paymentsPageSize = 500
 )
 
-func ComputeMetrics(ctx context.Context, lnd *lndclient.Client, tr TimeRange, memoMatch bool) (Metrics, error) {
+type RebalanceOverride struct {
+  FeeMsat int64
+  Count int64
+}
+
+func ComputeMetrics(ctx context.Context, lnd *lndclient.Client, tr TimeRange, memoMatch bool, override *RebalanceOverride) (Metrics, error) {
   if lnd == nil {
     return Metrics{}, fmt.Errorf("lnd client unavailable")
   }
@@ -28,9 +33,16 @@ func ComputeMetrics(ctx context.Context, lnd *lndclient.Client, tr TimeRange, me
     return Metrics{}, err
   }
 
-  rebalanceCostMsat, rebalanceCount, err := fetchRebalanceMetrics(ctx, lnd, tr.StartUnix(), tr.EndUnixInclusive(), pubkey, memoMatch)
-  if err != nil {
-    return Metrics{}, err
+  rebalanceCostMsat := int64(0)
+  rebalanceCount := int64(0)
+  if override != nil {
+    rebalanceCostMsat = override.FeeMsat
+    rebalanceCount = override.Count
+  } else {
+    rebalanceCostMsat, rebalanceCount, err = fetchRebalanceMetrics(ctx, lnd, tr.StartUnix(), tr.EndUnixInclusive(), pubkey, memoMatch)
+    if err != nil {
+      return Metrics{}, err
+    }
   }
 
   netMsat := forwardRevenueMsat - rebalanceCostMsat
@@ -281,6 +293,44 @@ func extractPaymentFeeMsat(pay *lnrpc.Payment) int64 {
   }
   if pay.FeeSat != 0 {
     return int64(pay.FeeSat) * 1000
+  }
+  if pay.Fee != 0 {
+    return int64(pay.Fee) * 1000
+  }
+  if msat := paymentRouteFeeMsat(pay); msat != 0 {
+    return msat
+  }
+  return 0
+}
+
+func paymentRouteFeeMsat(pay *lnrpc.Payment) int64 {
+  if pay == nil {
+    return 0
+  }
+  for _, attempt := range pay.Htlcs {
+    if attempt == nil || attempt.Route == nil {
+      continue
+    }
+    if attempt.Status != lnrpc.HTLCAttempt_SUCCEEDED {
+      continue
+    }
+    if attempt.Route.TotalFeesMsat != 0 {
+      return int64(attempt.Route.TotalFeesMsat)
+    }
+    if attempt.Route.TotalFees != 0 {
+      return int64(attempt.Route.TotalFees) * 1000
+    }
+  }
+  for _, attempt := range pay.Htlcs {
+    if attempt == nil || attempt.Route == nil {
+      continue
+    }
+    if attempt.Route.TotalFeesMsat != 0 {
+      return int64(attempt.Route.TotalFeesMsat)
+    }
+    if attempt.Route.TotalFees != 0 {
+      return int64(attempt.Route.TotalFees) * 1000
+    }
   }
   return 0
 }

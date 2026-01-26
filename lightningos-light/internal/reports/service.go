@@ -27,6 +27,7 @@ type liveSnapshot struct {
   ExpiresAt time.Time
   Range TimeRange
   Metrics Metrics
+  LookbackHours int
 }
 
 func NewService(db *pgxpool.Pool, lnd *lndclient.Client, logger *log.Logger) *Service {
@@ -42,9 +43,9 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
   return EnsureSchema(ctx, s.db)
 }
 
-func (s *Service) RunDaily(ctx context.Context, reportDate time.Time, loc *time.Location) (Row, error) {
+func (s *Service) RunDaily(ctx context.Context, reportDate time.Time, loc *time.Location, override *RebalanceOverride) (Row, error) {
   tr := BuildTimeRangeForDate(reportDate, loc)
-  metrics, err := ComputeMetrics(ctx, s.lnd, tr, false)
+  metrics, err := ComputeMetrics(ctx, s.lnd, tr, false, override)
   if err != nil {
     return Row{}, err
   }
@@ -93,20 +94,20 @@ func (s *Service) CustomSummary(ctx context.Context, startDate, endDate time.Tim
   return FetchSummaryRange(ctx, s.db, startDate, endDate)
 }
 
-func (s *Service) Live(ctx context.Context, now time.Time, loc *time.Location) (TimeRange, Metrics, error) {
+func (s *Service) Live(ctx context.Context, now time.Time, loc *time.Location, lookbackHours int) (TimeRange, Metrics, error) {
   if loc == nil {
     loc = time.Local
   }
   s.liveMu.Lock()
   cached := s.liveCache
-  if time.Now().Before(cached.ExpiresAt) {
+  if time.Now().Before(cached.ExpiresAt) && cached.LookbackHours == lookbackHours {
     s.liveMu.Unlock()
     return cached.Range, cached.Metrics, nil
   }
   s.liveMu.Unlock()
 
-  tr := BuildTimeRangeForToday(now, loc)
-  metrics, err := ComputeMetrics(ctx, s.lnd, tr, false)
+  tr := BuildTimeRangeForLookback(now, loc, lookbackHours)
+  metrics, err := ComputeMetrics(ctx, s.lnd, tr, false, nil)
   if err != nil {
     return TimeRange{}, Metrics{}, err
   }
@@ -117,6 +118,7 @@ func (s *Service) Live(ctx context.Context, now time.Time, loc *time.Location) (
     ExpiresAt: time.Now().Add(s.liveTTL),
     Range: tr,
     Metrics: metrics,
+    LookbackHours: lookbackHours,
   }
   s.liveMu.Unlock()
 
