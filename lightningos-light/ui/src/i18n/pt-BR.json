@@ -83,7 +83,7 @@
       "ember": "Brasa",
       "slate": "Ardosia"
     },
-    "systemLabel": "SYSTEM",
+    "systemLabel": "SISTEMA",
     "toggleLanguage": "Alternar idioma"
   },
   "sidebar": {
@@ -98,7 +98,7 @@
     "moveUp": "Mover para cima",
     "moveDown": "Mover para baixo",
     "hideItem": "Ocultar",
-    "showItem": "Mostrar no menu",
+    "showItem": "Mostrar",
     "resetMenu": "Restaurar padrão",
     "poweredBy": "Powered By BR⚡LN",
     "versionLabel": "Versão:"
@@ -240,10 +240,13 @@
     "size": "Tamanho",
     "smartLabel": "SMART",
     "subtitle": "Dados SMART com estimativa de vida útil.",
+    "temp": "Temp",
+    "tempWarn": "Temp alta",
     "title": "Saúde dos discos",
     "used": "Uso",
     "usedValue": "{{used}} ({{percent}}%)",
-    "wear": "Desgaste"
+    "wear": "Desgaste",
+    "wearWarn": "Desgaste alto"
   },
   "logs": {
     "fetchFailed": "Falha ao buscar logs.",
@@ -521,6 +524,8 @@
     "lightning": "Lightning",
     "lightningAddressDetected": "Lightning Address detectado. Informe o valor para pagar.",
     "lightningHint": "Use os cards abaixo para receber ou enviar via Lightning.",
+    "lightningTotal": "Total (incl. em aberto): {{amount}} sats",
+    "lightningUnsettled": "Em aberto (local): {{amount}} sats",
     "memo": "Memo",
     "noChannelsForAmount": "Nenhum canal com saldo local suficiente para este valor.",
     "noMemo": "Sem memo",
@@ -531,6 +536,7 @@
     "onchainDepositAddress": "Endereço de depósito on-chain (SegWit)",
     "onchainSend": "Envio on-chain",
     "onchainSendFailed": "Falha ao enviar on-chain.",
+    "onchainUnconfirmed": "Não confirmado: {{amount}} sats",
     "outgoingChannel": "Canal de saída (opcional)",
     "outgoingChannelHint": "Selecionar um canal de saída força o LND a usar este canal. Se falhar, remova a seleção e tente novamente.",
     "payInvoice": "Pagar invoice",
