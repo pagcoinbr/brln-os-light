@@ -147,7 +147,7 @@ export default function OnchainHub() {
   const loadTxs = async () => {
     setTxError('')
     try {
-      const res: any = await getOnchainTransactions({ limit: 800 })
+      const res: any = await getOnchainTransactions()
       if (!mountedRef.current) return
       setTxs(Array.isArray(res?.items) ? res.items : [])
     } catch (err: any) {

@@ -2051,7 +2051,7 @@ func (s *Server) handleOnchainUtxos(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOnchainTransactions(w http.ResponseWriter, r *http.Request) {
-  limit := 200
+  limit := 0
   if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
     if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
       limit = parsed
