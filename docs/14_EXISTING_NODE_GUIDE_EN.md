@@ -39,6 +39,47 @@ chmod +x install_existing.sh
 sudo bash install_existing.sh
 ```
 
+## App Store (LNDg and other apps)
+To use the App Store on existing nodes (without installing Bitcoin via LightningOS), follow these steps:
+
+1) Ensure Docker is running:
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-plugin
+sudo systemctl enable --now docker
+```
+
+2) Add the manager user to the docker group (example: admin) and re-login:
+```bash
+sudo usermod -aG docker admin
+```
+
+3) Enable passwordless sudo for the manager user (example: admin):
+```bash
+sudo tee /etc/sudoers.d/lightningos >/dev/null <<'EOF'
+Defaults:admin !requiretty
+Cmnd_Alias LIGHTNINGOS_SYSTEM = /bin/systemctl restart lnd, /bin/systemctl restart lightningos-manager, /bin/systemctl restart postgresql, /usr/sbin/smartctl *
+Cmnd_Alias LIGHTNINGOS_APPS = /usr/bin/apt-get *, /usr/bin/apt *, /usr/bin/dpkg *, /usr/bin/docker *, /usr/bin/docker-compose *, /usr/bin/systemd-run *
+admin ALL=NOPASSWD: LIGHTNINGOS_SYSTEM, LIGHTNINGOS_APPS
+EOF
+sudo chmod 440 /etc/sudoers.d/lightningos
+sudo visudo -cf /etc/sudoers.d/lightningos
+```
+
+4) Allow LND gRPC from Docker (required by LNDg):
+```bash
+GATEWAY=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+sudo sed -i '/^rpclisten=/d;/^tlsextraip=/d;/^tlsextradomain=/d' /data/lnd/lnd.conf
+echo "rpclisten=127.0.0.1:10009" | sudo tee -a /data/lnd/lnd.conf
+echo "rpclisten=${GATEWAY}:10009" | sudo tee -a /data/lnd/lnd.conf
+echo "tlsextraip=${GATEWAY}" | sudo tee -a /data/lnd/lnd.conf
+echo "tlsextradomain=host.docker.internal" | sudo tee -a /data/lnd/lnd.conf
+sudo rm -f /data/lnd/tls.cert /data/lnd/tls.key
+sudo systemctl restart lnd
+```
+
+After that, install LNDg from the App Store.
+
 ## Important about /data/lnd
 - LightningOS uses fixed paths for lnd.conf and wallet.db in /data/lnd.
 - If LND is not in /data/lnd, the lnd.conf editor and auto-unlock will not work.
