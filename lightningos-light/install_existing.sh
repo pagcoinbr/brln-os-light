@@ -157,7 +157,7 @@ fix_lightningos_storage_permissions() {
 install_go() {
   print_step "Installing Go ${GO_VERSION}"
   local go_bin
-  go_bin=$(detect_go_binary)
+  go_bin=$(detect_go_binary || true)
   if [[ -n "$go_bin" ]]; then
     local current major minor
     current=$("$go_bin" version | awk '{print $3}' | sed 's/go//')
