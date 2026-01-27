@@ -62,6 +62,7 @@ sudo systemctl enable docker
 ```bash
 sudo usermod -aG docker admin
 ```
+Se preferir nao fazer logout, use os comandos docker com sudo (ex.: `sudo docker ...`).
 
 3) Habilite sudo sem senha para o usuario do manager (ex: admin):
 ```bash
@@ -77,7 +78,7 @@ sudo visudo -cf /etc/sudoers.d/lightningos
 
 4) Permita que o LND receba gRPC a partir do Docker (necessario para LNDg):
 ```bash
-GATEWAY=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+GATEWAY=$(sudo docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
 sudo sed -i '/^rpclisten=/d;/^tlsextraip=/d;/^tlsextradomain=/d' /data/lnd/lnd.conf
 echo "rpclisten=127.0.0.1:10009" | sudo tee -a /data/lnd/lnd.conf
 echo "rpclisten=${GATEWAY}:10009" | sudo tee -a /data/lnd/lnd.conf
