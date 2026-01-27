@@ -2002,6 +2002,7 @@ func (s *Server) lndWarmupActive() bool {
 func (s *Server) handleOnchainUtxos(w http.ResponseWriter, r *http.Request) {
   minConfs := int32(0)
   maxConfs := int32(0)
+  maxConfSet := false
   if raw := strings.TrimSpace(r.URL.Query().Get("include_unconfirmed")); raw != "" {
     if parsed, err := strconv.ParseBool(raw); err == nil && !parsed {
       minConfs = 1
@@ -2015,10 +2016,14 @@ func (s *Server) handleOnchainUtxos(w http.ResponseWriter, r *http.Request) {
   if raw := strings.TrimSpace(r.URL.Query().Get("max_conf")); raw != "" {
     if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 {
       maxConfs = int32(parsed)
+      maxConfSet = true
     }
   }
   if maxConfs > 0 && maxConfs < minConfs {
     maxConfs = minConfs
+  }
+  if !maxConfSet {
+    maxConfs = int32(1 << 30)
   }
 
   limit := 500

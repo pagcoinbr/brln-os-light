@@ -148,7 +148,7 @@ export default function OnchainHub() {
   const loadTxs = async () => {
     setTxError('')
     try {
-      const res: any = await getOnchainTransactions({ limit: 400 })
+      const res: any = await getOnchainTransactions({ limit: 800 })
       if (!mountedRef.current) return
       setTxs(Array.isArray(res?.items) ? res.items : [])
     } catch (err: any) {
@@ -588,9 +588,6 @@ export default function OnchainHub() {
                     {item.addresses && item.addresses.length > 2 && ` +${item.addresses.length - 2}`}
                   </div>
                   <div className="flex items-center gap-2 text-xs text-fog/70 break-all">
-                    <button type="button" className="onchain-link" onClick={() => copyToClipboard(item.txid)}>
-                      {item.txid}
-                    </button>
                     <a
                       className="onchain-link"
                       href={`${explorerBase}/tx/${item.txid}`}
@@ -598,7 +595,7 @@ export default function OnchainHub() {
                       rel="noreferrer"
                       title={t('onchainHub.viewExternal')}
                     >
-                      {t('onchainHub.view')}
+                      {item.txid}
                     </a>
                   </div>
                 </div>

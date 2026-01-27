@@ -742,10 +742,8 @@ func (c *Client) ListOnchain(ctx context.Context, limit int) ([]RecentActivity, 
   client := lnrpc.NewLightningClient(conn)
   req := &lnrpc.GetTransactionsRequest{
     MaxTransactions: uint32(limit),
-  }
-  if info, infoErr := client.GetInfo(ctx, &lnrpc.GetInfoRequest{}); infoErr == nil {
-    req.StartHeight = int32(info.BlockHeight)
-    req.EndHeight = -1
+    StartHeight:     0,
+    EndHeight:       -1,
   }
   resp, err := client.GetTransactions(ctx, req)
   if err != nil {
@@ -802,10 +800,8 @@ func (c *Client) ListOnchainTransactions(ctx context.Context, limit int) ([]Onch
   client := lnrpc.NewLightningClient(conn)
   req := &lnrpc.GetTransactionsRequest{
     MaxTransactions: uint32(limit),
-  }
-  if info, infoErr := client.GetInfo(ctx, &lnrpc.GetInfoRequest{}); infoErr == nil {
-    req.StartHeight = int32(info.BlockHeight)
-    req.EndHeight = -1
+    StartHeight:     0,
+    EndHeight:       -1,
   }
   resp, err := client.GetTransactions(ctx, req)
   if err != nil {
