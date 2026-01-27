@@ -5,7 +5,7 @@ set -o errtrace
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR"
 
-GO_VERSION="${GO_VERSION:-1.22.7}"
+GO_VERSION="${GO_VERSION:-1.24.12}"
 GO_TARBALL_URL="https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
 NODE_VERSION="${NODE_VERSION:-current}"
 GOTTY_VERSION="${GOTTY_VERSION:-1.0.1}"
@@ -155,7 +155,7 @@ install_go() {
     current=$("$go_bin" version | awk '{print $3}' | sed 's/go//')
     major=$(echo "$current" | cut -d. -f1)
     minor=$(echo "$current" | cut -d. -f2)
-    if [[ "$major" -gt 1 || ( "$major" -eq 1 && "$minor" -ge 22 ) ]]; then
+    if [[ "$major" -gt 1 || ( "$major" -eq 1 && "$minor" -ge 24 ) ]]; then
       export PATH="/usr/local/go/bin:$PATH"
       print_ok "Go already installed ($current)"
       return
