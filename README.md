@@ -51,6 +51,21 @@ cd lightningos-light
 sudo ./install.sh
 ```
 
+UFW note (App Store/LNDg):
+If LNDg fails to reach LND gRPC and UFW is enabled, Docker-to-host traffic can be blocked.
+Run these checks and allow the bridge interface used by the LNDg network:
+```bash
+sudo docker exec -it lndg-lndg-1 getent hosts host.docker.internal
+sudo docker exec -it lndg-lndg-1 bash -lc 'timeout 3 bash -lc "</dev/tcp/host.docker.internal/10009" && echo OK || echo FAIL'
+sudo docker network inspect lndg_default --format '{{.Id}}'
+# bridge name = br-<first 12 chars of the id>
+sudo ufw allow in on br-<id> to any port 10009 proto tcp
+```
+If it still fails, try:
+```bash
+sudo iptables -I INPUT -i br-<id> -p tcp --dport 10009 -j ACCEPT
+```
+
 **Attention (existing nodes):** If you already have a Lightning node with LND/Bitcoin running, do not use `install.sh`.  
 Follow the Existing Node Guide instead:
 - PT-BR: `docs/13_EXISTING_NODE_GUIDE_PT_BR.md`

@@ -63,6 +63,21 @@ sudo ufw status
 ```
 If you use remote Bitcoin/LND, some health checks may show "ERR" until remote access is configured.
 
+UFW note for LNDg (App Store):
+If LNDg cannot reach LND gRPC and UFW is enabled, Docker-to-host traffic may be blocked.
+Follow these steps to allow the bridge used by the LNDg network:
+```bash
+sudo docker exec -it lndg-lndg-1 getent hosts host.docker.internal
+sudo docker exec -it lndg-lndg-1 bash -lc 'timeout 3 bash -lc "</dev/tcp/host.docker.internal/10009" && echo OK || echo FAIL'
+sudo docker network inspect lndg_default --format '{{.Id}}'
+# bridge name is br-<first 12 chars of the id>
+sudo ufw allow in on br-<id> to any port 10009 proto tcp
+```
+If it still fails:
+```bash
+sudo iptables -I INPUT -i br-<id> -p tcp --dport 10009 -j ACCEPT
+```
+
 If the script is not executable:
 ```bash
 chmod +x install_existing.sh

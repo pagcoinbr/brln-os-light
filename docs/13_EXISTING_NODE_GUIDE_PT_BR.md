@@ -63,6 +63,21 @@ sudo ufw status
 ```
 Se voce usa Bitcoin/LND remoto, alguns checks podem aparecer como "ERR" ate configurar o acesso remoto.
 
+Nota sobre UFW e LNDg (App Store):
+Se o LNDg nao conseguir acessar o gRPC do LND e voce usa UFW, o trafego do Docker para o host pode estar bloqueado.
+Siga estes passos para liberar a bridge usada pela rede do LNDg:
+```bash
+sudo docker exec -it lndg-lndg-1 getent hosts host.docker.internal
+sudo docker exec -it lndg-lndg-1 bash -lc 'timeout 3 bash -lc "</dev/tcp/host.docker.internal/10009" && echo OK || echo FAIL'
+sudo docker network inspect lndg_default --format '{{.Id}}'
+# o nome da bridge e br-<primeiros 12 caracteres do id>
+sudo ufw allow in on br-<id> to any port 10009 proto tcp
+```
+Se ainda falhar:
+```bash
+sudo iptables -I INPUT -i br-<id> -p tcp --dport 10009 -j ACCEPT
+```
+
 Se o script nao estiver executavel:
 ```bash
 chmod +x install_existing.sh
