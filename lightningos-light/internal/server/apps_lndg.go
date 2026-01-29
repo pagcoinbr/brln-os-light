@@ -143,6 +143,7 @@ func (s *Server) installLndg(ctx context.Context) error {
   if err := runCompose(ctx, paths.Root, paths.ComposePath, "up", "-d", "lndg-db"); err != nil {
     return err
   }
+  _ = ensureLndgUfwAccess(ctx)
   if err := syncLndgDbPassword(ctx, paths); err != nil {
     return err
   }
@@ -206,6 +207,7 @@ func (s *Server) startLndg(ctx context.Context) error {
   if err := runCompose(ctx, paths.Root, paths.ComposePath, "up", "-d", "lndg-db"); err != nil {
     return err
   }
+  _ = ensureLndgUfwAccess(ctx)
   if err := syncLndgDbPassword(ctx, paths); err != nil {
     return err
   }
@@ -555,6 +557,34 @@ func dockerGatewayIP(ctx context.Context) (string, error) {
     }
   }
   return "", errors.New("unable to determine docker bridge gateway IP")
+}
+
+func ensureLndgUfwAccess(ctx context.Context) error {
+  statusOut, err := system.RunCommandWithSudo(ctx, "ufw", "status")
+  if err != nil || !strings.Contains(strings.ToLower(statusOut), "status: active") {
+    return nil
+  }
+  bridge, err := lndgBridgeName(ctx)
+  if err != nil || bridge == "" {
+    return err
+  }
+  _, _ = system.RunCommandWithSudo(ctx, "ufw", "allow", "in", "on", bridge, "to", "any", "port", "10009", "proto", "tcp")
+  return nil
+}
+
+func lndgBridgeName(ctx context.Context) (string, error) {
+  out, err := system.RunCommandWithSudo(ctx, "docker", "network", "inspect", "lndg_default", "--format", "{{.Id}}")
+  if err != nil {
+    return "", err
+  }
+  id := strings.TrimSpace(out)
+  if id == "" || id == "<no value>" {
+    return "", errors.New("lndg_default network id not found")
+  }
+  if len(id) > 12 {
+    id = id[:12]
+  }
+  return "br-" + id, nil
 }
 
 func updateLndGrpcOptions(lines []string, gateway string) ([]string, bool) {
