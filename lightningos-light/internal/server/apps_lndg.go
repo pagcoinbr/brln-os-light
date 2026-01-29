@@ -572,21 +572,41 @@ func ensureLndgUfwAccess(ctx context.Context) error {
   if err != nil || !strings.Contains(strings.ToLower(statusOut), "status: active") {
     return nil
   }
-  bridge, err := lndgBridgeName(ctx)
-  if err != nil || bridge == "" {
-    return err
-  }
+  var lastAllowOut string
+  var lastStatusOut string
   for attempt := 0; attempt < 5; attempt++ {
-    _, cmdErr := system.RunCommandWithSudo(ctx, "ufw", "allow", "in", "on", bridge, "to", "any", "port", "10009", "proto", "tcp")
+    bridge, bridgeErr := lndgBridgeName(ctx)
+    if bridgeErr != nil || bridge == "" {
+      err = bridgeErr
+      time.Sleep(2 * time.Second)
+      continue
+    }
+    out, cmdErr := system.RunCommandWithSudo(ctx, "ufw", "--force", "allow", "in", "on", bridge, "to", "any", "port", "10009", "proto", "tcp")
+    lastAllowOut = strings.TrimSpace(out)
     if cmdErr != nil {
       time.Sleep(2 * time.Second)
       continue
     }
-    verifyOut, verifyErr := system.RunCommandWithSudo(ctx, "ufw", "status")
-    if verifyErr == nil && strings.Contains(verifyOut, bridge) && strings.Contains(verifyOut, "10009/tcp") {
+    verifyOut, verifyErr := system.RunCommandWithSudo(ctx, "ufw", "show", "added")
+    if verifyErr == nil && strings.Contains(verifyOut, bridge) && strings.Contains(verifyOut, "10009") {
       return nil
     }
+    if _, reloadErr := system.RunCommandWithSudo(ctx, "ufw", "reload"); reloadErr == nil {
+      verifyOut, verifyErr = system.RunCommandWithSudo(ctx, "ufw", "status", "verbose")
+      if verifyErr == nil {
+        lastStatusOut = strings.TrimSpace(verifyOut)
+        if strings.Contains(verifyOut, bridge) && strings.Contains(verifyOut, "10009/tcp") {
+          return nil
+        }
+      }
+    }
     time.Sleep(2 * time.Second)
+  }
+  if lastAllowOut != "" {
+    return fmt.Errorf("failed to apply ufw rule for %s:10009 (last ufw output: %s)", bridge, lastAllowOut)
+  }
+  if lastStatusOut != "" {
+    return fmt.Errorf("failed to apply ufw rule for %s:10009 (last ufw status: %s)", bridge, lastStatusOut)
   }
   return fmt.Errorf("failed to apply ufw rule for %s:10009", bridge)
 }
