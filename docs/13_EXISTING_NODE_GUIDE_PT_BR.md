@@ -38,6 +38,31 @@ O script tambem cria/atualiza os services do systemd com estes usuarios:
 - lightningos-terminal: roda como `lightningos`.
 Para SupplementaryGroups, o script so adiciona grupos que existem no host.
 
+Checklist rapido (pos-instalacao):
+- Verifique o manager:
+```bash
+systemctl status lightningos-manager --no-pager
+journalctl -u lightningos-manager -n 50 --no-pager
+```
+- Descubra o IP e acesse a UI:
+```bash
+hostname -I | awk '{print $1}'
+```
+Acesse: `https://IP_DA_MAQUINA:8443`
+- Confirme grupos do usuario `lightningos`:
+```bash
+id lightningos
+```
+- Valide sudoers:
+```bash
+sudo visudo -cf /etc/sudoers.d/lightningos
+```
+- Se usa UFW, confirme a porta 8443:
+```bash
+sudo ufw status
+```
+Se voce usa Bitcoin/LND remoto, alguns checks podem aparecer como "ERR" ate configurar o acesso remoto.
+
 Se o script nao estiver executavel:
 ```bash
 chmod +x install_existing.sh

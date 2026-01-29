@@ -38,6 +38,31 @@ The script also writes the systemd units with these users:
 - lightningos-terminal: runs as `lightningos`.
 For SupplementaryGroups, it only adds groups that exist on the host.
 
+Quick checklist (post-install):
+- Check manager status/logs:
+```bash
+systemctl status lightningos-manager --no-pager
+journalctl -u lightningos-manager -n 50 --no-pager
+```
+- Get your IP and open the UI:
+```bash
+hostname -I | awk '{print $1}'
+```
+Open: `https://YOUR_SERVER_IP:8443`
+- Confirm `lightningos` group membership:
+```bash
+id lightningos
+```
+- Validate sudoers:
+```bash
+sudo visudo -cf /etc/sudoers.d/lightningos
+```
+- If you use UFW, confirm port 8443 is allowed:
+```bash
+sudo ufw status
+```
+If you use remote Bitcoin/LND, some health checks may show "ERR" until remote access is configured.
+
 If the script is not executable:
 ```bash
 chmod +x install_existing.sh
