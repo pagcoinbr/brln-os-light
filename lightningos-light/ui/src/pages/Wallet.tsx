@@ -237,13 +237,16 @@ export default function Wallet() {
     const type = String(item?.type || '').toLowerCase()
     const network = activityNetwork(item)
     const direction = activityDirection(item)
+    const keysend = Boolean(item?.keysend)
     let label = t('wallet.activity')
-    if (type === 'invoice') label = t('wallet.invoice')
+    if (keysend) label = t('wallet.keysend')
+    else if (type === 'invoice') label = t('wallet.invoice')
     else if (type === 'payment') label = t('wallet.payment')
     else if (network === 'onchain') label = direction === 'out' ? t('wallet.onchainSend') : t('wallet.onchainDeposit')
     else if (type) label = type.charAt(0).toUpperCase() + type.slice(1)
-    if (network === 'lightning') return `⚡ ${label}`
+    if (network === 'lightning') return `? ${label}`
     return label
+  }
   }
 
   const orderedActivity = [...activity].sort((a: any, b: any) => {

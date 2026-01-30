@@ -522,6 +522,7 @@
     "invoiceFailed": "Invoice failed.",
     "invoiceLightning": "Invoice (Lightning)",
     "invoiceReady": "Invoice ready.",
+    "keysend": "Keysend",
     "lightning": "Lightning",
     "lightningAddressDetected": "Lightning address detected. Enter the amount to pay.",
     "lightningHint": "Use the cards below to receive or send over Lightning.",

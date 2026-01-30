@@ -655,6 +655,7 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
         Memo: inv.Memo,
         Timestamp: time.Unix(inv.CreationDate, 0).UTC(),
         Status: inv.State.String(),
+        Keysend: inv.IsKeysend,
         PaymentHash: hash,
       })
     }
@@ -667,6 +668,7 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
       if isSelfPayment(ctx, pubkey, client, pay) {
         continue
       }
+      isKeysend := strings.TrimSpace(pay.PaymentRequest) == ""
       items = append(items, RecentActivity{
         Type: "payment",
         Network: "lightning",
@@ -675,6 +677,7 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
         Memo: pay.PaymentRequest,
         Timestamp: time.Unix(pay.CreationDate, 0).UTC(),
         Status: pay.Status.String(),
+        Keysend: isKeysend,
         PaymentHash: strings.ToLower(pay.PaymentHash),
       })
     }
@@ -1461,6 +1464,7 @@ type RecentActivity struct {
   Timestamp time.Time `json:"timestamp"`
   Status string `json:"status"`
   Txid string `json:"txid,omitempty"`
+  Keysend bool `json:"keysend,omitempty"`
   PaymentHash string `json:"-"`
 }
 
