@@ -107,9 +107,6 @@ func (s *Server) installLndg(ctx context.Context) error {
   if err := ensureDocker(ctx); err != nil {
     return err
   }
-  if err := ensureLndgGrpcAccess(ctx); err != nil {
-    return err
-  }
   paths := lndgAppPaths()
   if err := os.MkdirAll(paths.Root, 0750); err != nil {
     return fmt.Errorf("failed to create app directory: %w", err)
@@ -143,6 +140,9 @@ func (s *Server) installLndg(ctx context.Context) error {
   if err := runCompose(ctx, paths.Root, paths.ComposePath, "up", "-d", "lndg-db"); err != nil {
     return err
   }
+  if err := ensureLndgGrpcAccess(ctx); err != nil {
+    return err
+  }
   if err := ensureLndgUfwAccess(ctx); err != nil && s.logger != nil {
     s.logger.Printf("lndg: ufw rule failed: %v", err)
   }
@@ -168,9 +168,6 @@ func (s *Server) uninstallLndg(ctx context.Context) error {
 }
 
 func (s *Server) startLndg(ctx context.Context) error {
-  if err := ensureLndgGrpcAccess(ctx); err != nil {
-    return err
-  }
   paths := lndgAppPaths()
   if err := os.MkdirAll(paths.Root, 0750); err != nil {
     return fmt.Errorf("failed to create app directory: %w", err)
@@ -207,6 +204,9 @@ func (s *Server) startLndg(ctx context.Context) error {
     needsBuild = true
   }
   if err := runCompose(ctx, paths.Root, paths.ComposePath, "up", "-d", "lndg-db"); err != nil {
+    return err
+  }
+  if err := ensureLndgGrpcAccess(ctx); err != nil {
     return err
   }
   if err := ensureLndgUfwAccess(ctx); err != nil && s.logger != nil {
