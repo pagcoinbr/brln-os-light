@@ -660,47 +660,17 @@ func updateLndGrpcOptions(lines []string, gateways []string) ([]string, bool) {
     }
     uniqueGateways = append(uniqueGateways, gw)
   }
-  firstSection := len(lines)
-  for i, line := range lines {
-    trimmed := strings.TrimSpace(line)
-    if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-      firstSection = i
-      break
-    }
-  }
-  top := lines[:firstSection]
-  rest := lines[firstSection:]
-
   rpclistenOrder := []string{}
   rpclistenSet := map[string]bool{}
-  filteredTop := []string{}
-  for _, line := range top {
+  for _, line := range lines {
     trimmed := strings.TrimSpace(line)
-    if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-      filteredTop = append(filteredTop, line)
-      continue
-    }
-    if strings.HasPrefix(trimmed, "tlsextraip=") || strings.HasPrefix(trimmed, "tlsextradomain=") {
-      continue
-    }
     if strings.HasPrefix(trimmed, "rpclisten=") {
       value := strings.TrimSpace(strings.TrimPrefix(trimmed, "rpclisten="))
       if value != "" && !rpclistenSet[value] {
         rpclistenSet[value] = true
         rpclistenOrder = append(rpclistenOrder, value)
       }
-      continue
     }
-    filteredTop = append(filteredTop, line)
-  }
-
-  filteredRest := []string{}
-  for _, line := range rest {
-    trimmed := strings.TrimSpace(line)
-    if strings.HasPrefix(trimmed, "tlsextraip=") || strings.HasPrefix(trimmed, "tlsextradomain=") || strings.HasPrefix(trimmed, "rpclisten=") {
-      continue
-    }
-    filteredRest = append(filteredRest, line)
   }
 
   desiredOrder := []string{"127.0.0.1:10009"}
@@ -714,27 +684,46 @@ func updateLndGrpcOptions(lines []string, gateways []string) ([]string, bool) {
     }
   }
 
-  updated := append([]string{}, filteredTop...)
-  for _, gw := range uniqueGateways {
-    updated = append(updated, fmt.Sprintf("tlsextraip=%s", gw))
+  cleaned := []string{}
+  insertIdx := -1
+  for _, line := range lines {
+    trimmed := strings.TrimSpace(line)
+    if trimmed == "[Application Options]" && insertIdx == -1 {
+      cleaned = append(cleaned, line)
+      insertIdx = len(cleaned)
+      continue
+    }
+    if strings.HasPrefix(trimmed, "tlsextraip=") || strings.HasPrefix(trimmed, "tlsextradomain=") || strings.HasPrefix(trimmed, "rpclisten=") {
+      continue
+    }
+    cleaned = append(cleaned, line)
   }
-  updated = append(updated, "tlsextradomain=host.docker.internal")
+  if insertIdx == -1 {
+    insertIdx = 0
+  }
 
+  block := []string{}
+  for _, gw := range uniqueGateways {
+    block = append(block, fmt.Sprintf("tlsextraip=%s", gw))
+  }
+  block = append(block, "tlsextradomain=host.docker.internal")
   added := map[string]bool{}
   for _, value := range desiredOrder {
     if !added[value] {
-      updated = append(updated, "rpclisten="+value)
+      block = append(block, "rpclisten="+value)
       added[value] = true
     }
   }
   for _, value := range rpclistenOrder {
     if !added[value] {
-      updated = append(updated, "rpclisten="+value)
+      block = append(block, "rpclisten="+value)
       added[value] = true
     }
   }
 
-  updated = append(updated, filteredRest...)
+  updated := append([]string{}, cleaned[:insertIdx]...)
+  updated = append(updated, block...)
+  updated = append(updated, cleaned[insertIdx:]...)
 
   changed := len(updated) != len(lines)
   if !changed {
