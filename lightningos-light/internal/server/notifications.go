@@ -744,6 +744,7 @@ func (n *Notifier) runInvoices() {
       evtType := "lightning"
       peerPubkey := ""
       peerAlias := ""
+      memo := strings.TrimSpace(invoice.Memo)
       ctxPeer, cancelPeer := context.WithTimeout(context.Background(), 4*time.Second)
       peerPubkey, peerAlias = n.keysendPeerFromInvoice(ctxPeer, invoice)
       cancelPeer()
@@ -752,6 +753,7 @@ func (n *Notifier) runInvoices() {
       }
       if isKeysend {
         evtType = "keysend"
+        memo = keysendMessageFromInvoice(invoice)
       }
       evt := Notification{
         OccurredAt: occurredAt,
@@ -763,7 +765,7 @@ func (n *Notifier) runInvoices() {
         PeerPubkey: peerPubkey,
         PeerAlias: peerAlias,
         PaymentHash: hash,
-        Memo: invoice.Memo,
+        Memo: memo,
       }
 
       ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -848,6 +850,7 @@ func (n *Notifier) runPayments() {
     memo := ""
     if isKeysend {
       peerPubkey = keysendDestPubkey
+      memo = keysendMessageFromPayment(pay)
     } else {
       trimmed := strings.TrimSpace(pay.PaymentRequest)
       if trimmed != "" {
@@ -1818,6 +1821,62 @@ func keysendDestinationFromPayment(pay *lnrpc.Payment) string {
     return ""
   }
   return strings.TrimSpace(hops[len(hops)-1].PubKey)
+}
+
+func keysendMessageFromInvoice(invoice *lnrpc.Invoice) string {
+  if invoice == nil {
+    return ""
+  }
+  for _, htlc := range invoice.Htlcs {
+    if htlc == nil {
+      continue
+    }
+    if msg := keysendMessageFromRecords(htlc.CustomRecords); msg != "" {
+      return msg
+    }
+  }
+  return ""
+}
+
+func keysendMessageFromPayment(pay *lnrpc.Payment) string {
+  if pay == nil {
+    return ""
+  }
+  if msg := keysendMessageFromRecords(pay.FirstHopCustomRecords); msg != "" {
+    return msg
+  }
+  for _, attempt := range pay.Htlcs {
+    if attempt == nil || attempt.Route == nil {
+      continue
+    }
+    for _, hop := range attempt.Route.Hops {
+      if hop == nil {
+        continue
+      }
+      if msg := keysendMessageFromRecords(hop.CustomRecords); msg != "" {
+        return msg
+      }
+    }
+  }
+  return ""
+}
+
+func keysendMessageFromRecords(records map[uint64][]byte) string {
+  if len(records) == 0 {
+    return ""
+  }
+  raw, ok := records[lndclient.KeysendMessageRecord]
+  if !ok || len(raw) == 0 {
+    return ""
+  }
+  msg := strings.TrimSpace(string(raw))
+  if msg == "" {
+    return ""
+  }
+  if len(msg) > 500 {
+    msg = msg[:500]
+  }
+  return msg
 }
 
 func (n *Notifier) keysendPeerFromInvoice(ctx context.Context, invoice *lnrpc.Invoice) (string, string) {
