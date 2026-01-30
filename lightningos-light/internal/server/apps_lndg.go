@@ -521,16 +521,24 @@ func syncLndgDbPassword(ctx context.Context, paths lndgPaths) error {
 }
 
 func ensureLndgGrpcAccess(ctx context.Context) error {
-  gatewayIP, err := dockerGatewayIP(ctx)
-  if err != nil {
-    return err
+  gateways := []string{}
+  bridgeIP, err := dockerGatewayIP(ctx)
+  if err == nil && bridgeIP != "" {
+    gateways = append(gateways, bridgeIP)
+  }
+  lndgGatewayIP, err := lndgNetworkGatewayIP(ctx)
+  if err == nil && lndgGatewayIP != "" && !stringInSlice(lndgGatewayIP, gateways) {
+    gateways = append(gateways, lndgGatewayIP)
+  }
+  if len(gateways) == 0 {
+    return errors.New("unable to determine docker gateway IPs")
   }
   content, err := os.ReadFile(lndConfPath)
   if err != nil {
     return fmt.Errorf("failed to read lnd.conf: %w", err)
   }
   lines := strings.Split(strings.TrimRight(string(content), "\n"), "\n")
-  lines, changed := updateLndGrpcOptions(lines, gatewayIP)
+  lines, changed := updateLndGrpcOptions(lines, gateways)
   if !changed {
     return nil
   }
@@ -565,6 +573,18 @@ func dockerGatewayIP(ctx context.Context) (string, error) {
     }
   }
   return "", errors.New("unable to determine docker bridge gateway IP")
+}
+
+func lndgNetworkGatewayIP(ctx context.Context) (string, error) {
+  out, err := system.RunCommandWithSudo(ctx, "docker", "network", "inspect", "lndg_default", "--format", "{{(index .IPAM.Config 0).Gateway}}")
+  if err != nil {
+    return "", err
+  }
+  ip := strings.TrimSpace(out)
+  if ip == "" || ip == "<no value>" {
+    return "", errors.New("lndg_default network gateway not found")
+  }
+  return ip, nil
 }
 
 func ensureLndgUfwAccess(ctx context.Context) error {
@@ -631,7 +651,15 @@ func lndgBridgeName(ctx context.Context) (string, error) {
   return "br-" + id, nil
 }
 
-func updateLndGrpcOptions(lines []string, gateway string) ([]string, bool) {
+func updateLndGrpcOptions(lines []string, gateways []string) ([]string, bool) {
+  uniqueGateways := []string{}
+  for _, gw := range gateways {
+    gw = strings.TrimSpace(gw)
+    if gw == "" || stringInSlice(gw, uniqueGateways) {
+      continue
+    }
+    uniqueGateways = append(uniqueGateways, gw)
+  }
   firstSection := len(lines)
   for i, line := range lines {
     trimmed := strings.TrimSpace(line)
@@ -675,7 +703,10 @@ func updateLndGrpcOptions(lines []string, gateway string) ([]string, bool) {
     filteredRest = append(filteredRest, line)
   }
 
-  desiredOrder := []string{"127.0.0.1:10009", gateway + ":10009"}
+  desiredOrder := []string{"127.0.0.1:10009"}
+  for _, gw := range uniqueGateways {
+    desiredOrder = append(desiredOrder, gw+":10009")
+  }
   for _, value := range desiredOrder {
     if !rpclistenSet[value] {
       rpclistenSet[value] = true
@@ -684,7 +715,9 @@ func updateLndGrpcOptions(lines []string, gateway string) ([]string, bool) {
   }
 
   updated := append([]string{}, filteredTop...)
-  updated = append(updated, fmt.Sprintf("tlsextraip=%s", gateway))
+  for _, gw := range uniqueGateways {
+    updated = append(updated, fmt.Sprintf("tlsextraip=%s", gw))
+  }
   updated = append(updated, "tlsextradomain=host.docker.internal")
 
   added := map[string]bool{}
