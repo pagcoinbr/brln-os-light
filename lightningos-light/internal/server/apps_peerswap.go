@@ -8,6 +8,8 @@ import (
   "path/filepath"
   "strconv"
   "strings"
+
+  "lightningos-light/internal/system"
 )
 
 const (
@@ -140,6 +142,9 @@ func (s *Server) installPeerswap(ctx context.Context) error {
   if _, err := runSystemd(ctx, "systemctl", "enable", "--now", pswebServiceName); err != nil {
     return err
   }
+  if err := ensurePswebUfwAccess(ctx); err != nil && s.logger != nil {
+    s.logger.Printf("psweb: ufw rule failed: %v", err)
+  }
   return nil
 }
 
@@ -166,6 +171,9 @@ func (s *Server) startPeerswap(ctx context.Context) error {
   if _, err := runSystemd(ctx, "systemctl", "restart", pswebServiceName); err != nil {
     return err
   }
+  if err := ensurePswebUfwAccess(ctx); err != nil && s.logger != nil {
+    s.logger.Printf("psweb: ufw rule failed: %v", err)
+  }
   return nil
 }
 
@@ -179,6 +187,15 @@ func (s *Server) stopPeerswap(ctx context.Context) error {
     return err
   }
   return nil
+}
+
+func ensurePswebUfwAccess(ctx context.Context) error {
+  statusOut, err := system.RunCommandWithSudo(ctx, "ufw", "status")
+  if err != nil || !strings.Contains(strings.ToLower(statusOut), "status: active") {
+    return nil
+  }
+  _, err = system.RunCommandWithSudo(ctx, "ufw", "allow", fmt.Sprintf("%d/tcp", pswebPort))
+  return err
 }
 
 func (s *Server) uninstallPeerswap(ctx context.Context) error {

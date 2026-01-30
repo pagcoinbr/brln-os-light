@@ -15,6 +15,8 @@ func (s *Server) routes() http.Handler {
   r.Use(s.requestLogger())
 
   r.Get("/api/health", s.handleHealth)
+  r.Get("/api/amboss/health", s.handleAmbossHealthGet)
+  r.Post("/api/amboss/health", s.handleAmbossHealthPost)
   r.Get("/api/system", s.handleSystem)
   r.Get("/api/disk", s.handleDisk)
   r.Get("/api/postgres", s.handlePostgres)
@@ -37,6 +39,7 @@ func (s *Server) routes() http.Handler {
   r.Post("/api/wizard/lnd/init-wallet", s.handleInitWallet)
   r.Post("/api/wizard/lnd/unlock", s.handleUnlockWallet)
   r.Post("/api/actions/restart", s.handleRestart)
+  r.Post("/api/actions/system", s.handleSystemAction)
   r.Get("/api/logs", s.handleLogs)
   r.Post("/api/lnd/config", s.handleLNDConfigPost)
   r.Post("/api/lnd/config/raw", s.handleLNDConfigRaw)
@@ -59,6 +62,11 @@ func (s *Server) routes() http.Handler {
   r.Get("/api/reports/config", s.handleReportsConfigGet)
   r.Post("/api/reports/config", s.handleReportsConfigPost)
   r.Get("/api/terminal/status", s.handleTerminalStatus)
+
+  r.Route("/api/onchain", func(r chi.Router) {
+    r.Get("/utxos", s.handleOnchainUtxos)
+    r.Get("/transactions", s.handleOnchainTransactions)
+  })
 
   r.Route("/api/wallet", func(r chi.Router) {
     r.Get("/summary", s.handleWalletSummary)

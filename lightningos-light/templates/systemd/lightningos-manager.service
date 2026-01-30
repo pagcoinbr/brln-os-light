@@ -17,7 +17,7 @@ LimitNOFILE=65536
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/var/lib/lightningos /var/log/lightningos /etc/lightningos /data/lnd
+ReadWritePaths=/var/lib/lightningos /var/log/lightningos /etc/lightningos /data/lnd /etc/ufw
 
 [Install]
 WantedBy=multi-user.target

@@ -11,6 +11,7 @@ NODE_VERSION="${NODE_VERSION:-current}"
 GOTTY_VERSION="${GOTTY_VERSION:-1.0.1}"
 GOTTY_URL="https://github.com/yudai/gotty/releases/download/v${GOTTY_VERSION}/gotty_linux_amd64.tar.gz"
 POSTGRES_VERSION="${POSTGRES_VERSION:-latest}"
+LND_FIX_PERMS_SCRIPT="/usr/local/sbin/lightningos-fix-lnd-perms"
 
 CURRENT_STEP=""
 LOG_FILE="/var/log/lightningos-install-existing.log"
@@ -26,6 +27,12 @@ SECRETS_PATH="/etc/lightningos/secrets.env"
 NOTIFICATIONS_DB_NAME="lightningos"
 NOTIFICATIONS_APP_USER="losapp"
 NOTIFICATIONS_ADMIN_USER="losadmin"
+LND_SERVICE=""
+LND_USER=""
+LND_GROUP=""
+BITCOIN_SERVICE=""
+BITCOIN_USER=""
+BITCOIN_GROUP=""
 
 print_step() {
   CURRENT_STEP="$1"
@@ -39,6 +46,12 @@ print_ok() {
 
 print_warn() {
   echo "[WARN] $1"
+}
+
+get_lan_ip() {
+  local ip
+  ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  echo "$ip"
 }
 
 require_root() {
@@ -312,6 +325,70 @@ EOF
   print_ok "Sudoers updated for smartctl"
 }
 
+install_lnd_fix_perms_script() {
+  local src="$REPO_ROOT/scripts/fix-lnd-perms.sh"
+  if [[ -f "$src" ]]; then
+    mkdir -p "$(dirname "$LND_FIX_PERMS_SCRIPT")"
+    install -m 0755 "$src" "$LND_FIX_PERMS_SCRIPT"
+    print_ok "LND permissions helper installed"
+  else
+    print_warn "Missing helper script: $src"
+  fi
+}
+
+configure_sudoers() {
+  print_step "Configuring sudoers"
+  local systemctl_path apt_get_path apt_path dpkg_path docker_path docker_compose_path systemd_run_path smartctl_path ufw_path
+  systemctl_path=$(command -v systemctl || true)
+  apt_get_path=$(command -v apt-get || true)
+  apt_path=$(command -v apt || true)
+  dpkg_path=$(command -v dpkg || true)
+  docker_path=$(command -v docker || true)
+  docker_compose_path=$(command -v docker-compose || true)
+  systemd_run_path=$(command -v systemd-run || true)
+  smartctl_path=$(command -v smartctl || true)
+  ufw_path=$(command -v ufw || true)
+  if [[ -z "$docker_path" ]]; then
+    docker_path="/usr/bin/docker"
+  fi
+  if [[ -z "$docker_compose_path" ]]; then
+    docker_compose_path="/usr/bin/docker-compose"
+  fi
+  if [[ -z "$systemd_run_path" ]]; then
+    systemd_run_path="/usr/bin/systemd-run"
+  fi
+  if [[ -z "$smartctl_path" ]]; then
+    smartctl_path="/usr/sbin/smartctl"
+  fi
+  if [[ -z "$systemctl_path" ]]; then
+    print_warn "systemctl not found; skipping sudoers setup"
+    return
+  fi
+  local system_cmds
+  system_cmds="${systemctl_path} restart lnd, ${systemctl_path} restart lightningos-manager, ${systemctl_path} restart postgresql, ${systemctl_path} reboot, ${systemctl_path} poweroff, ${LND_FIX_PERMS_SCRIPT}, ${smartctl_path} *"
+  local app_cmds=()
+  [[ -n "$apt_get_path" ]] && app_cmds+=("${apt_get_path} *")
+  [[ -n "$apt_path" ]] && app_cmds+=("${apt_path} *")
+  [[ -n "$dpkg_path" ]] && app_cmds+=("${dpkg_path} *")
+  [[ -n "$docker_path" ]] && app_cmds+=("${docker_path} *")
+  [[ -n "$docker_compose_path" ]] && app_cmds+=("${docker_compose_path} *")
+  [[ -n "$systemd_run_path" ]] && app_cmds+=("${systemd_run_path} *")
+  [[ -n "$ufw_path" ]] && app_cmds+=("${ufw_path} *")
+  local app_cmds_line
+  app_cmds_line=$(IFS=", "; echo "${app_cmds[*]}")
+  if [[ -z "$app_cmds_line" ]]; then
+    app_cmds_line="/bin/true"
+  fi
+  cat > /etc/sudoers.d/lightningos <<EOF
+Defaults:lightningos !requiretty
+Cmnd_Alias LIGHTNINGOS_SYSTEM = ${system_cmds}
+Cmnd_Alias LIGHTNINGOS_APPS = ${app_cmds_line}
+lightningos ALL=NOPASSWD: LIGHTNINGOS_SYSTEM, LIGHTNINGOS_APPS
+EOF
+  chmod 440 /etc/sudoers.d/lightningos
+  print_ok "Sudoers configured"
+}
+
 read_conf_value() {
   local path="$1"
   local key="$2"
@@ -395,6 +472,7 @@ ensure_go() {
   local go_bin
   go_bin=$(detect_go_binary || true)
   if [[ -n "$go_bin" ]]; then
+    export PATH="$(dirname "$go_bin"):$PATH"
     local current major minor
     current=$("$go_bin" version | awk '{print $3}' | sed 's/go//')
     major=$(echo "$current" | cut -d. -f1)
@@ -502,8 +580,16 @@ ensure_manager_service() {
   sed -i "s|^User=.*|User=${user}|" "$dst"
   sed -i "s|^Group=.*|Group=${group}|" "$dst"
   local groups=("systemd-journal")
-  getent group lnd >/dev/null 2>&1 && groups+=("lnd")
-  getent group bitcoin >/dev/null 2>&1 && groups+=("bitcoin")
+  if [[ -n "$LND_GROUP" ]]; then
+    getent group "$LND_GROUP" >/dev/null 2>&1 && groups+=("$LND_GROUP")
+  else
+    getent group lnd >/dev/null 2>&1 && groups+=("lnd")
+  fi
+  if [[ -n "$BITCOIN_GROUP" ]]; then
+    getent group "$BITCOIN_GROUP" >/dev/null 2>&1 && groups+=("$BITCOIN_GROUP")
+  else
+    getent group bitcoin >/dev/null 2>&1 && groups+=("bitcoin")
+  fi
   getent group docker >/dev/null 2>&1 && groups+=("docker")
   local group_line
   group_line=$(IFS=' '; echo "${groups[*]}")
@@ -565,6 +651,18 @@ ensure_terminal_user() {
   fi
 }
 
+ensure_lightningos_user() {
+  if ! getent group lightningos >/dev/null 2>&1; then
+    groupadd --system lightningos
+  fi
+  if ! id lightningos >/dev/null 2>&1; then
+    useradd --system --home /var/lib/lightningos --shell /usr/sbin/nologin -g lightningos lightningos
+  fi
+  mkdir -p /var/lib/lightningos
+  chown lightningos:lightningos /var/lib/lightningos
+  chmod 750 /var/lib/lightningos
+}
+
 ensure_group_membership() {
   local user="$1"
   shift
@@ -621,6 +719,114 @@ ensure_group_exists() {
 
 service_exists() {
   systemctl list-unit-files --type=service --no-pager 2>/dev/null | awk '{print $1}' | grep -qx "${1}.service"
+}
+
+ensure_ufw_manager_port() {
+  if ! command -v ufw >/dev/null 2>&1; then
+    return 0
+  fi
+  local status
+  status=$(ufw status 2>/dev/null || true)
+  if ! echo "$status" | grep -qi "Status: active"; then
+    return 0
+  fi
+  if echo "$status" | grep -Eq '(^|[[:space:]])8443/tcp([[:space:]]|$)'; then
+    return 0
+  fi
+  ufw allow 8443/tcp || print_warn "Failed to open UFW port 8443/tcp"
+}
+
+detect_first_service() {
+  local svc
+  for svc in "$@"; do
+    if service_exists "$svc"; then
+      echo "$svc"
+      return 0
+    fi
+  done
+  return 1
+}
+
+detect_service_user() {
+  local svc="$1"
+  if [[ -z "$svc" ]]; then
+    return 1
+  fi
+  local user
+  user=$(systemctl show -p User --value "$svc" 2>/dev/null || true)
+  user=$(echo "$user" | tr -d ' ')
+  if [[ -n "$user" ]]; then
+    echo "$user"
+    return 0
+  fi
+  return 1
+}
+
+detect_service_group() {
+  local svc="$1"
+  local fallback="$2"
+  if [[ -z "$svc" ]]; then
+    return 1
+  fi
+  local group
+  group=$(systemctl show -p Group --value "$svc" 2>/dev/null || true)
+  group=$(echo "$group" | tr -d ' ')
+  if [[ -z "$group" ]]; then
+    group="$fallback"
+  fi
+  if [[ -n "$group" ]]; then
+    echo "$group"
+    return 0
+  fi
+  return 1
+}
+
+detect_core_service_users() {
+  LND_SERVICE=$(detect_first_service lnd lnd@default || true)
+  if [[ -n "$LND_SERVICE" ]]; then
+    LND_USER=$(detect_service_user "$LND_SERVICE" || true)
+    LND_GROUP=$(detect_service_group "$LND_SERVICE" "$LND_USER" || true)
+  fi
+
+  BITCOIN_SERVICE=$(detect_first_service bitcoind bitcoin bitcoind@default bitcoin@default || true)
+  if [[ -n "$BITCOIN_SERVICE" ]]; then
+    BITCOIN_USER=$(detect_service_user "$BITCOIN_SERVICE" || true)
+    BITCOIN_GROUP=$(detect_service_group "$BITCOIN_SERVICE" "$BITCOIN_USER" || true)
+  fi
+}
+
+fix_lnd_permissions() {
+  local lnd_dir="$1"
+  local lnd_user="$2"
+  local lnd_group="$3"
+  if [[ -z "$lnd_dir" || -z "$lnd_user" || -z "$lnd_group" ]]; then
+    print_warn "Missing LND user/group; skipping LND permissions fix"
+    return 0
+  fi
+
+  local chain_dir="${lnd_dir}/data/chain/bitcoin/mainnet"
+  if [[ -d "$lnd_dir" ]]; then
+    chown "$lnd_user:$lnd_group" "$lnd_dir"
+    chmod 750 "$lnd_dir"
+  fi
+  for dir in "$lnd_dir/data" "$lnd_dir/data/chain" "$lnd_dir/data/chain/bitcoin" "$chain_dir"; do
+    if [[ -d "$dir" ]]; then
+      chown "$lnd_user:$lnd_group" "$dir"
+      chmod 750 "$dir"
+    fi
+  done
+  if [[ -f "$lnd_dir/tls.cert" ]]; then
+    chown "$lnd_user:$lnd_group" "$lnd_dir/tls.cert"
+    chmod 640 "$lnd_dir/tls.cert"
+  fi
+  if [[ -d "$chain_dir" ]]; then
+    shopt -s nullglob
+    for mac in "$chain_dir"/*.macaroon; do
+      chown "$lnd_user:$lnd_group" "$mac"
+      chmod 640 "$mac"
+    done
+    shopt -u nullglob
+  fi
 }
 
 ensure_postgres_service() {
@@ -815,6 +1021,11 @@ main() {
 
   ensure_dirs
   ensure_secrets_file
+  ensure_lightningos_user
+
+  local manager_user="lightningos"
+  local manager_group="lightningos"
+  print_ok "Manager service user: ${manager_user}"
 
   if [[ ! -f "$CONFIG_PATH" ]]; then
     cp "$REPO_ROOT/templates/lightningos.config.yaml" "$CONFIG_PATH"
@@ -834,6 +1045,16 @@ main() {
     print_ok "Detected LND backend: bolt/sqlite"
   else
     print_warn "Could not detect LND backend"
+  fi
+
+  detect_core_service_users
+  if [[ -n "$LND_USER" ]]; then
+    print_ok "Detected LND service user: ${LND_USER}"
+  else
+    print_warn "LND service user not detected"
+  fi
+  if [[ -n "$BITCOIN_USER" ]]; then
+    print_ok "Detected Bitcoin service user: ${BITCOIN_USER}"
   fi
 
   if [[ "$lnd_backend" != "postgres" ]]; then
@@ -884,7 +1105,7 @@ main() {
       fi
     fi
     local terminal_user
-    terminal_user=$(prompt_value "Terminal service user" "admin")
+    terminal_user=$(prompt_value "Terminal operator user" "admin")
     ensure_terminal_user "$terminal_user"
     local terminal_pass
     terminal_pass=$(prompt_value "Terminal password (leave blank to auto-generate)")
@@ -896,30 +1117,37 @@ main() {
     set_env_value "TERMINAL_OPERATOR_PASSWORD" "$terminal_pass"
     set_env_value "TERMINAL_CREDENTIAL" "${terminal_user}:${terminal_pass}"
     ensure_terminal_helper
-    ensure_terminal_service "$terminal_user" "$terminal_user"
+    ensure_terminal_service "$manager_user" "$manager_group"
   fi
 
-  local manager_user manager_group manager_group_default
-  while true; do
-    manager_user=$(prompt_value "Manager service user" "admin")
-    if ensure_user_exists "$manager_user"; then
-      break
-    fi
-  done
-  manager_group_default=$(id -gn "$manager_user" 2>/dev/null || echo "$manager_user")
-  while true; do
-    manager_group=$(prompt_value "Manager service group" "$manager_group_default")
-    if ensure_group_exists "$manager_group"; then
-      break
-    fi
-  done
-  if prompt_yes_no "Add ${manager_user} to lnd/bitcoin/docker groups when available?" "y"; then
-    ensure_group_membership "$manager_user" lnd bitcoin docker systemd-journal
+  local membership_groups=()
+  if [[ -n "$LND_GROUP" ]]; then
+    membership_groups+=("$LND_GROUP")
+  else
+    membership_groups+=("lnd")
   fi
-  if prompt_yes_no "Allow ${manager_user} to run smartctl via sudo (no password)?" "y"; then
-    configure_smartctl_sudoers "$manager_user" || print_warn "SMART data may be unavailable"
+  if [[ -n "$BITCOIN_GROUP" ]]; then
+    membership_groups+=("$BITCOIN_GROUP")
+  else
+    membership_groups+=("bitcoin")
   fi
+  membership_groups+=("docker" "systemd-journal")
+  ensure_group_membership "$manager_user" "${membership_groups[@]}"
+  if [[ -n "$LND_USER" && -n "$BITCOIN_GROUP" ]]; then
+    if ! id -nG "$LND_USER" | tr ' ' '\n' | grep -qx "$BITCOIN_GROUP"; then
+      if prompt_yes_no "Add ${LND_USER} to ${BITCOIN_GROUP} group for Bitcoin RPC cookie access?" "y"; then
+        ensure_group_membership "$LND_USER" "$BITCOIN_GROUP"
+      fi
+    fi
+  fi
+  install_lnd_fix_perms_script
+  configure_sudoers
   ensure_manager_service "$manager_user" "$manager_group"
+  if [[ -n "$LND_USER" && -n "$LND_GROUP" ]]; then
+    fix_lnd_permissions "$lnd_dir" "$LND_USER" "$LND_GROUP"
+  else
+    print_warn "Skipping LND permissions fix (user/group not detected)"
+  fi
   fix_lightningos_permissions "$manager_group"
   fix_lightningos_storage_permissions "$manager_user" "$manager_group"
 
@@ -950,10 +1178,18 @@ main() {
     systemctl enable --now lightningos-terminal || true
   fi
 
+  ensure_ufw_manager_port
+
   print_step "Done"
   echo "Log: ${LOG_FILE}"
   echo "Check: systemctl status lightningos-manager --no-pager"
-  echo "Health: curl -k https://127.0.0.1:8443/api/health"
+  local lan_ip
+  lan_ip=$(get_lan_ip)
+  if [[ -n "$lan_ip" ]]; then
+    echo "Open: https://${lan_ip}:8443"
+  else
+    echo "Open: https://IP_DA_MAQUINA:8443"
+  fi
 }
 
 main "$@"

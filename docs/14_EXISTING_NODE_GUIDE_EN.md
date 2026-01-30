@@ -1,5 +1,11 @@
 # LightningOS Light - Existing Node Guide (EN)
 
+## VERY IMPORTANT DISCLAIMER
+**LightningOS WAS NOT DESIGNED FOR EXISTING NODE INSTALLATIONS.**  
+It was built around nodes configured via the **BRLN BOLT** and **MINIBOLT** tutorials, but there are many particularities that cannot be fully mapped in a free-form setup.  
+Therefore, **if you do not have at least intermediate Linux and command-line knowledge, we do not recommend this installation**.  
+Manual adjustments and adaptations may be required and are not fully covered in this guide.
+
 ## Scope
 - This guide is for users who already have Bitcoin Core and LND running.
 - Do not use install.sh. The flow is manual after git pull and build.
@@ -26,11 +32,51 @@ sudo ./install_existing.sh
 ```
 It asks about Go/npm (required for build), Postgres, terminal, and basic setup.
 If you opt into Postgres, the script creates the LightningOS roles/DB and fills secrets.env automatically.
-The script also writes the systemd units with the users you provide:
-- lightningos-manager: uses the Manager service user/group.
-- lightningos-reports: uses the same user/group as the manager.
-- lightningos-terminal: uses the terminal user you provide.
+The script also writes the systemd units with these users:
+- lightningos-manager: uses the `lightningos` user/group.
+- lightningos-reports: uses the same user/group (`lightningos`).
+- lightningos-terminal: runs as `lightningos`.
 For SupplementaryGroups, it only adds groups that exist on the host.
+
+Quick checklist (post-install):
+- Check manager status/logs:
+```bash
+systemctl status lightningos-manager --no-pager
+journalctl -u lightningos-manager -n 50 --no-pager
+```
+- Get your IP and open the UI:
+```bash
+hostname -I | awk '{print $1}'
+```
+Open: `https://YOUR_SERVER_IP:8443`
+- Confirm `lightningos` group membership:
+```bash
+id lightningos
+```
+- Validate sudoers:
+```bash
+sudo visudo -cf /etc/sudoers.d/lightningos
+```
+- If you use UFW, confirm port 8443 is allowed:
+```bash
+sudo ufw status
+```
+If you use remote Bitcoin/LND, some health checks may show "ERR" until remote access is configured.
+
+UFW note for LNDg (App Store):
+If LNDg cannot reach LND gRPC and UFW is enabled, Docker-to-host traffic may be blocked.
+Follow these steps to allow the bridge used by the LNDg network:
+```bash
+sudo docker exec -it lndg-lndg-1 getent hosts host.docker.internal
+sudo docker exec -it lndg-lndg-1 bash -lc 'timeout 3 bash -lc "</dev/tcp/host.docker.internal/10009" && echo OK || echo FAIL'
+sudo docker network inspect lndg_default --format '{{.Id}}'
+# bridge name is br-<first 12 chars of the id>
+sudo ufw allow in on br-<id> to any port 10009 proto tcp
+```
+If it still fails:
+```bash
+sudo iptables -I INPUT -i br-<id> -p tcp --dport 10009 -j ACCEPT
+```
 
 If the script is not executable:
 ```bash
@@ -38,6 +84,70 @@ chmod +x install_existing.sh
 # or:
 sudo bash install_existing.sh
 ```
+
+## Manual configuration
+
+## App Store (LNDg and other apps)
+**Warning:** This App Store integration on existing nodes **has not been fully tested** and may have issues with some apps, even after following the steps below.
+To use the App Store on existing nodes (without installing Bitcoin via LightningOS), follow these steps:
+
+1) Ensure Docker is running:
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y ca-certificates curl gnupg lsb-release
+
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl status docker
+sudo systemctl enable docker
+```
+
+2) Add the `lightningos` user to the docker group and re-login:
+```bash
+sudo usermod -aG docker lightningos
+```
+If you don't want to log out, run docker commands with sudo (e.g., `sudo docker ...`).
+
+3) Enable passwordless sudo for the `lightningos` user:
+```bash
+sudo tee /etc/sudoers.d/lightningos >/dev/null <<'EOF'
+Defaults:lightningos !requiretty
+Cmnd_Alias LIGHTNINGOS_SYSTEM = /bin/systemctl restart lnd, /bin/systemctl restart lightningos-manager, /bin/systemctl restart postgresql, /usr/local/sbin/lightningos-fix-lnd-perms, /usr/sbin/smartctl *
+Cmnd_Alias LIGHTNINGOS_APPS = /usr/bin/apt-get *, /usr/bin/apt *, /usr/bin/dpkg *, /usr/bin/docker *, /usr/bin/docker-compose *, /usr/bin/systemd-run *
+lightningos ALL=NOPASSWD: LIGHTNINGOS_SYSTEM, LIGHTNINGOS_APPS
+EOF
+sudo chmod 440 /etc/sudoers.d/lightningos
+sudo visudo -cf /etc/sudoers.d/lightningos
+```
+
+4) Allow LND gRPC from Docker (required by LNDg).
+**Important:** these lines must be outside sections like `[Bitcoind]`. Put them at the top of the file or inside `[Application Options]`.
+1) Find the docker0 gateway IP:
+```bash
+ip -4 addr show docker0 | awk '/inet / {print $2}' | cut -d/ -f1
+```
+
+2) In `lnd.conf`, add these lines **outside any section** (or inside `[Application Options]`):
+```
+[Application Options]
+rpclisten=127.0.0.1:10009
+rpclisten=YOUR_GATEWAY:10009
+tlsextraip=YOUR_GATEWAY
+tlsextradomain=host.docker.internal
+```
+
+3) Restart LND to regenerate TLS:
+```bash
+sudo rm -f /data/lnd/tls.cert /data/lnd/tls.key
+sudo systemctl restart lnd
+```
+
+After that, install LNDg from the App Store.
 
 ## Important about /data/lnd
 - LightningOS uses fixed paths for lnd.conf and wallet.db in /data/lnd.
@@ -240,8 +350,8 @@ sudo cp templates/systemd/lightningos-reports.service \
 
 ### 3) Recommended adjustments
 Edit the lightningos-reports.service file and adjust it according to your environment:
-- User=admin
-- Group=admin
+- User=lightningos
+- Group=lightningos
 - SupplementaryGroups=systemd-journal (only if it exists)
 ```bash
 sudo ${EDITOR:-nano} /etc/systemd/system/lightningos-reports.service
@@ -262,8 +372,8 @@ sudo ${EDITOR:-nano} /etc/systemd/system/lightningos-manager.service
 ```
 
 2) Recommended edits:
-- User=admin
-- Group=admin
+- User=lightningos
+- Group=lightningos
 - SupplementaryGroups=lnd bitcoin systemd-journal docker (only groups that exist)
 
 3) Enable and start:
@@ -288,3 +398,4 @@ curl -k https://127.0.0.1:8443/api/lnd/status
 - Bitcoin RPC/ZMQ: wrong credentials or ports.
 - LND gRPC: port not 10009 or non-local bind.
 - If your Postgres service is not named "postgresql", create a systemd alias or expose that name on your distro.
+

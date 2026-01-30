@@ -442,7 +442,7 @@ export default function Notifications() {
                   }
                 }
                 const memo = typeof item.memo === 'string' ? item.memo.trim() : ''
-                const memoLabel = memo && item.type === 'lightning'
+                const memoLabel = memo && (item.type === 'lightning' || item.type === 'keysend')
                   ? t('notifications.memoLabel', { memo: trimMemo(memo) })
                   : ''
                 const detailParts: Array<string | JSX.Element> = [

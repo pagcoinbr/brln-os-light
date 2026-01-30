@@ -10,6 +10,7 @@ import (
   "log"
   "math"
   "os"
+  "sort"
   "strconv"
   "strings"
   "sync"
@@ -21,6 +22,8 @@ import (
   "google.golang.org/grpc"
   "google.golang.org/grpc/credentials"
 )
+
+const recentOnchainWindowBlocks int64 = 20160
 
 type Client struct {
   cfg *config.Config
@@ -652,6 +655,7 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
         Memo: inv.Memo,
         Timestamp: time.Unix(inv.CreationDate, 0).UTC(),
         Status: inv.State.String(),
+        Keysend: inv.IsKeysend,
         PaymentHash: hash,
       })
     }
@@ -664,6 +668,7 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
       if isSelfPayment(ctx, pubkey, client, pay) {
         continue
       }
+      isKeysend := isKeysendPayment(pay)
       items = append(items, RecentActivity{
         Type: "payment",
         Network: "lightning",
@@ -672,6 +677,7 @@ func (c *Client) ListRecent(ctx context.Context, limit int) ([]RecentActivity, e
         Memo: pay.PaymentRequest,
         Timestamp: time.Unix(pay.CreationDate, 0).UTC(),
         Status: pay.Status.String(),
+        Keysend: isKeysend,
         PaymentHash: strings.ToLower(pay.PaymentHash),
       })
     }
@@ -728,6 +734,42 @@ func rebalanceRouteFromPayment(pay *lnrpc.Payment) *lnrpc.Route {
   return nil
 }
 
+func hasKeysendRecord(records map[uint64][]byte) bool {
+  if len(records) == 0 {
+    return false
+  }
+  if _, ok := records[KeysendPreimageRecord]; ok {
+    return true
+  }
+  if _, ok := records[KeysendMessageRecord]; ok {
+    return true
+  }
+  return false
+}
+
+func isKeysendPayment(pay *lnrpc.Payment) bool {
+  if pay == nil {
+    return false
+  }
+  if hasKeysendRecord(pay.FirstHopCustomRecords) {
+    return true
+  }
+  for _, attempt := range pay.Htlcs {
+    if attempt == nil || attempt.Route == nil {
+      continue
+    }
+    for _, hop := range attempt.Route.Hops {
+      if hop == nil {
+        continue
+      }
+      if hasKeysendRecord(hop.CustomRecords) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
 func (c *Client) ListOnchain(ctx context.Context, limit int) ([]RecentActivity, error) {
   if limit <= 0 {
     limit = 20
@@ -740,12 +782,17 @@ func (c *Client) ListOnchain(ctx context.Context, limit int) ([]RecentActivity, 
   defer conn.Close()
 
   client := lnrpc.NewLightningClient(conn)
-  req := &lnrpc.GetTransactionsRequest{
-    MaxTransactions: uint32(limit),
+  var startHeight int32
+  if info, infoErr := client.GetInfo(ctx, &lnrpc.GetInfoRequest{}); infoErr == nil && info != nil && info.BlockHeight > 0 {
+    height := int64(info.BlockHeight)
+    if height > recentOnchainWindowBlocks {
+      startHeight = int32(height - recentOnchainWindowBlocks)
+    }
   }
-  if info, infoErr := client.GetInfo(ctx, &lnrpc.GetInfoRequest{}); infoErr == nil {
-    req.StartHeight = int32(info.BlockHeight)
-    req.EndHeight = -1
+  req := &lnrpc.GetTransactionsRequest{
+    MaxTransactions: 0,
+    StartHeight:     startHeight,
+    EndHeight:       -1,
   }
   resp, err := client.GetTransactions(ctx, req)
   if err != nil {
@@ -755,6 +802,9 @@ func (c *Client) ListOnchain(ctx context.Context, limit int) ([]RecentActivity, 
   items := make([]RecentActivity, 0, len(resp.Transactions))
   for _, tx := range resp.Transactions {
     if tx == nil {
+      continue
+    }
+    if tx.Amount == 0 {
       continue
     }
     amount := tx.Amount
@@ -779,6 +829,130 @@ func (c *Client) ListOnchain(ctx context.Context, limit int) ([]RecentActivity, 
       Timestamp: time.Unix(tx.TimeStamp, 0).UTC(),
       Status: status,
       Txid: tx.TxHash,
+    })
+  }
+
+  sort.Slice(items, func(i, j int) bool {
+    return items[i].Timestamp.After(items[j].Timestamp)
+  })
+  if len(items) > limit {
+    items = items[:limit]
+  }
+
+  return items, nil
+}
+
+func (c *Client) ListOnchainTransactions(ctx context.Context, limit int) ([]OnchainTransaction, error) {
+  conn, err := c.dial(ctx, true)
+  if err != nil {
+    return nil, err
+  }
+  defer conn.Close()
+
+  client := lnrpc.NewLightningClient(conn)
+  req := &lnrpc.GetTransactionsRequest{
+    MaxTransactions: 0,
+    StartHeight:     0,
+    EndHeight:       -1,
+  }
+  resp, err := client.GetTransactions(ctx, req)
+  if err != nil {
+    return nil, err
+  }
+
+  items := make([]OnchainTransaction, 0, len(resp.Transactions))
+  for _, tx := range resp.Transactions {
+    if tx == nil {
+      continue
+    }
+    amount := tx.Amount
+    direction := "in"
+    if amount < 0 {
+      direction = "out"
+      amount = amount * -1
+    }
+    addresses := make([]string, 0, len(tx.OutputDetails))
+    if len(tx.OutputDetails) > 0 {
+      for _, out := range tx.OutputDetails {
+        if out == nil {
+          continue
+        }
+        if out.Address != "" {
+          addresses = append(addresses, out.Address)
+        }
+      }
+    }
+    if len(addresses) == 0 && len(tx.DestAddresses) > 0 {
+      addresses = append(addresses, tx.DestAddresses...)
+    }
+    items = append(items, OnchainTransaction{
+      Txid: tx.TxHash,
+      Direction: direction,
+      AmountSat: amount,
+      FeeSat: tx.TotalFees,
+      Confirmations: tx.NumConfirmations,
+      BlockHeight: tx.BlockHeight,
+      Timestamp: time.Unix(tx.TimeStamp, 0).UTC(),
+      Label: tx.Label,
+      Addresses: uniqueStrings(addresses),
+    })
+  }
+
+  return items, nil
+}
+
+func (c *Client) ListOnchainUtxos(ctx context.Context, minConfs int32, maxConfs int32) ([]OnchainUtxo, error) {
+  if minConfs < 0 {
+    minConfs = 0
+  }
+  if maxConfs < 0 {
+    maxConfs = 0
+  }
+
+  conn, err := c.dial(ctx, true)
+  if err != nil {
+    return nil, err
+  }
+  defer conn.Close()
+
+  client := lnrpc.NewLightningClient(conn)
+  req := &lnrpc.ListUnspentRequest{
+    MinConfs: minConfs,
+    MaxConfs: maxConfs,
+  }
+  resp, err := client.ListUnspent(ctx, req)
+  if err != nil {
+    return nil, err
+  }
+
+  items := make([]OnchainUtxo, 0, len(resp.Utxos))
+  for _, utxo := range resp.Utxos {
+    if utxo == nil {
+      continue
+    }
+    out := utxo.GetOutpoint()
+    txid := ""
+    vout := uint32(0)
+    if out != nil {
+      txid = out.TxidStr
+      if txid == "" {
+        txid = txidFromBytes(out.TxidBytes)
+      }
+      vout = out.OutputIndex
+    }
+    outpoint := ""
+    if txid != "" {
+      outpoint = fmt.Sprintf("%s:%d", txid, vout)
+    }
+    items = append(items, OnchainUtxo{
+      Outpoint: outpoint,
+      Txid: txid,
+      Vout: vout,
+      Address: utxo.Address,
+      AddressType: addressTypeLabel(utxo.AddressType),
+      AmountSat: utxo.AmountSat,
+      Confirmations: utxo.Confirmations,
+      PkScript: utxo.PkScript,
     })
   }
 
@@ -1218,6 +1392,42 @@ func parseChannelPoint(point string) (*lnrpc.ChannelPoint, error) {
   }, nil
 }
 
+func uniqueStrings(items []string) []string {
+  if len(items) == 0 {
+    return items
+  }
+  seen := make(map[string]struct{}, len(items))
+  out := make([]string, 0, len(items))
+  for _, item := range items {
+    trimmed := strings.TrimSpace(item)
+    if trimmed == "" {
+      continue
+    }
+    if _, ok := seen[trimmed]; ok {
+      continue
+    }
+    seen[trimmed] = struct{}{}
+    out = append(out, trimmed)
+  }
+  return out
+}
+
+func addressTypeLabel(addrType lnrpc.AddressType) string {
+  switch addrType {
+  case lnrpc.AddressType_WITNESS_PUBKEY_HASH:
+    return "p2wkh"
+  case lnrpc.AddressType_NESTED_PUBKEY_HASH:
+    return "np2wkh"
+  case lnrpc.AddressType_TAPROOT_PUBKEY:
+    return "p2tr"
+  default:
+    label := strings.ToLower(addrType.String())
+    label = strings.ReplaceAll(label, "unused_", "")
+    label = strings.ReplaceAll(label, "_", "-")
+    return label
+  }
+}
+
 type Status struct {
   ServiceActive bool
   WalletState string
@@ -1290,5 +1500,29 @@ type RecentActivity struct {
   Timestamp time.Time `json:"timestamp"`
   Status string `json:"status"`
   Txid string `json:"txid,omitempty"`
+  Keysend bool `json:"keysend,omitempty"`
   PaymentHash string `json:"-"`
+}
+
+type OnchainTransaction struct {
+  Txid string `json:"txid"`
+  Direction string `json:"direction"`
+  AmountSat int64 `json:"amount_sat"`
+  FeeSat int64 `json:"fee_sat"`
+  Confirmations int32 `json:"confirmations"`
+  BlockHeight int32 `json:"block_height"`
+  Timestamp time.Time `json:"timestamp"`
+  Label string `json:"label,omitempty"`
+  Addresses []string `json:"addresses,omitempty"`
+}
+
+type OnchainUtxo struct {
+  Outpoint string `json:"outpoint"`
+  Txid string `json:"txid"`
+  Vout uint32 `json:"vout"`
+  Address string `json:"address"`
+  AddressType string `json:"address_type"`
+  AmountSat int64 `json:"amount_sat"`
+  Confirmations int64 `json:"confirmations"`
+  PkScript string `json:"pk_script,omitempty"`
 }

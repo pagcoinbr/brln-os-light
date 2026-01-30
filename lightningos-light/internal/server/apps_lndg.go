@@ -107,9 +107,6 @@ func (s *Server) installLndg(ctx context.Context) error {
   if err := ensureDocker(ctx); err != nil {
     return err
   }
-  if err := ensureLndgGrpcAccess(ctx); err != nil {
-    return err
-  }
   paths := lndgAppPaths()
   if err := os.MkdirAll(paths.Root, 0750); err != nil {
     return fmt.Errorf("failed to create app directory: %w", err)
@@ -143,6 +140,12 @@ func (s *Server) installLndg(ctx context.Context) error {
   if err := runCompose(ctx, paths.Root, paths.ComposePath, "up", "-d", "lndg-db"); err != nil {
     return err
   }
+  if err := ensureLndgGrpcAccess(ctx); err != nil {
+    return err
+  }
+  if err := ensureLndgUfwAccess(ctx); err != nil && s.logger != nil {
+    s.logger.Printf("lndg: ufw rule failed: %v", err)
+  }
   if err := syncLndgDbPassword(ctx, paths); err != nil {
     return err
   }
@@ -165,9 +168,6 @@ func (s *Server) uninstallLndg(ctx context.Context) error {
 }
 
 func (s *Server) startLndg(ctx context.Context) error {
-  if err := ensureLndgGrpcAccess(ctx); err != nil {
-    return err
-  }
   paths := lndgAppPaths()
   if err := os.MkdirAll(paths.Root, 0750); err != nil {
     return fmt.Errorf("failed to create app directory: %w", err)
@@ -205,6 +205,12 @@ func (s *Server) startLndg(ctx context.Context) error {
   }
   if err := runCompose(ctx, paths.Root, paths.ComposePath, "up", "-d", "lndg-db"); err != nil {
     return err
+  }
+  if err := ensureLndgGrpcAccess(ctx); err != nil {
+    return err
+  }
+  if err := ensureLndgUfwAccess(ctx); err != nil && s.logger != nil {
+    s.logger.Printf("lndg: ufw rule failed: %v", err)
   }
   if err := syncLndgDbPassword(ctx, paths); err != nil {
     return err
@@ -373,14 +379,16 @@ func ensureLndgEnv(ctx context.Context, paths lndgPaths) error {
     adminPassword := readEnvValue(paths.EnvPath, "LNDG_ADMIN_PASSWORD")
     if adminPassword == "" {
       adminPassword = readSecretFile(paths.AdminPasswordPath)
-      if adminPassword != "" {
-        if err := setEnvValue(paths.EnvPath, "LNDG_ADMIN_PASSWORD", adminPassword); err != nil {
-          return err
-        }
-      }
     }
     if adminPassword == "" {
-      return errors.New("LNDG_ADMIN_PASSWORD missing from .env")
+      var err error
+      adminPassword, err = randomToken(20)
+      if err != nil {
+        return err
+      }
+    }
+    if err := setEnvValue(paths.EnvPath, "LNDG_ADMIN_PASSWORD", adminPassword); err != nil {
+      return err
     }
     if readSecretFile(paths.AdminPasswordPath) != adminPassword {
       if err := writeFile(paths.AdminPasswordPath, adminPassword+"\n", 0600); err != nil {
@@ -391,14 +399,16 @@ func ensureLndgEnv(ctx context.Context, paths lndgPaths) error {
     dbPassword := readEnvValue(paths.EnvPath, "LNDG_DB_PASSWORD")
     if dbPassword == "" {
       dbPassword = readSecretFile(paths.DbPasswordPath)
-      if dbPassword != "" {
-        if err := setEnvValue(paths.EnvPath, "LNDG_DB_PASSWORD", dbPassword); err != nil {
-          return err
-        }
-      }
     }
     if dbPassword == "" {
-      return errors.New("LNDG_DB_PASSWORD missing from .env")
+      var err error
+      dbPassword, err = randomToken(24)
+      if err != nil {
+        return err
+      }
+    }
+    if err := setEnvValue(paths.EnvPath, "LNDG_DB_PASSWORD", dbPassword); err != nil {
+      return err
     }
     if readSecretFile(paths.DbPasswordPath) != dbPassword {
       if err := writeFile(paths.DbPasswordPath, dbPassword+"\n", 0600); err != nil {
@@ -511,16 +521,24 @@ func syncLndgDbPassword(ctx context.Context, paths lndgPaths) error {
 }
 
 func ensureLndgGrpcAccess(ctx context.Context) error {
-  gatewayIP, err := dockerGatewayIP(ctx)
-  if err != nil {
-    return err
+  gateways := []string{}
+  bridgeIP, err := dockerGatewayIP(ctx)
+  if err == nil && bridgeIP != "" {
+    gateways = append(gateways, bridgeIP)
+  }
+  lndgGatewayIP, err := lndgNetworkGatewayIP(ctx)
+  if err == nil && lndgGatewayIP != "" && !stringInSlice(lndgGatewayIP, gateways) {
+    gateways = append(gateways, lndgGatewayIP)
+  }
+  if len(gateways) == 0 {
+    return errors.New("unable to determine docker gateway IPs")
   }
   content, err := os.ReadFile(lndConfPath)
   if err != nil {
     return fmt.Errorf("failed to read lnd.conf: %w", err)
   }
   lines := strings.Split(strings.TrimRight(string(content), "\n"), "\n")
-  lines, changed := updateLndGrpcOptions(lines, gatewayIP)
+  lines, changed := updateLndGrpcOptions(lines, gateways)
   if !changed {
     return nil
   }
@@ -557,51 +575,108 @@ func dockerGatewayIP(ctx context.Context) (string, error) {
   return "", errors.New("unable to determine docker bridge gateway IP")
 }
 
-func updateLndGrpcOptions(lines []string, gateway string) ([]string, bool) {
-  firstSection := len(lines)
-  for i, line := range lines {
-    trimmed := strings.TrimSpace(line)
-    if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-      firstSection = i
-      break
-    }
+func lndgNetworkGatewayIP(ctx context.Context) (string, error) {
+  out, err := system.RunCommandWithSudo(ctx, "docker", "network", "inspect", "lndg_default", "--format", "{{(index .IPAM.Config 0).Gateway}}")
+  if err != nil {
+    return "", err
   }
-  top := lines[:firstSection]
-  rest := lines[firstSection:]
+  ip := strings.TrimSpace(out)
+  if ip == "" || ip == "<no value>" {
+    return "", errors.New("lndg_default network gateway not found")
+  }
+  return ip, nil
+}
 
+func ensureLndgUfwAccess(ctx context.Context) error {
+  statusOut, err := system.RunCommandWithSudo(ctx, "ufw", "status")
+  if err != nil || !strings.Contains(strings.ToLower(statusOut), "status: active") {
+    return nil
+  }
+  var lastAllowOut string
+  var lastStatusOut string
+  var lastBridge string
+  for attempt := 0; attempt < 5; attempt++ {
+    bridge, bridgeErr := lndgBridgeName(ctx)
+    if bridgeErr != nil || bridge == "" {
+      err = bridgeErr
+      time.Sleep(2 * time.Second)
+      continue
+    }
+    lastBridge = bridge
+    out, cmdErr := system.RunCommandWithSudo(ctx, "ufw", "allow", "in", "on", bridge, "to", "any", "port", "10009", "proto", "tcp")
+    lastAllowOut = strings.TrimSpace(out)
+    if cmdErr != nil {
+      time.Sleep(2 * time.Second)
+      continue
+    }
+    verifyOut, verifyErr := system.RunCommandWithSudo(ctx, "ufw", "show", "added")
+    if verifyErr == nil && strings.Contains(verifyOut, bridge) && strings.Contains(verifyOut, "10009") {
+      return nil
+    }
+    if _, reloadErr := system.RunCommandWithSudo(ctx, "ufw", "reload"); reloadErr == nil {
+      verifyOut, verifyErr = system.RunCommandWithSudo(ctx, "ufw", "status", "verbose")
+      if verifyErr == nil {
+        lastStatusOut = strings.TrimSpace(verifyOut)
+        if strings.Contains(verifyOut, bridge) && strings.Contains(verifyOut, "10009/tcp") {
+          return nil
+        }
+      }
+    }
+    time.Sleep(2 * time.Second)
+  }
+  if lastAllowOut != "" {
+    return fmt.Errorf("failed to apply ufw rule for %s:10009 (last ufw output: %s)", lastBridge, lastAllowOut)
+  }
+  if lastStatusOut != "" {
+    return fmt.Errorf("failed to apply ufw rule for %s:10009 (last ufw status: %s)", lastBridge, lastStatusOut)
+  }
+  if err != nil {
+    return fmt.Errorf("failed to apply ufw rule for lndg bridge: %w", err)
+  }
+  return fmt.Errorf("failed to apply ufw rule for %s:10009", lastBridge)
+}
+
+func lndgBridgeName(ctx context.Context) (string, error) {
+  out, err := system.RunCommandWithSudo(ctx, "docker", "network", "inspect", "lndg_default", "--format", "{{.Id}}")
+  if err != nil {
+    return "", err
+  }
+  id := strings.TrimSpace(out)
+  if id == "" || id == "<no value>" {
+    return "", errors.New("lndg_default network id not found")
+  }
+  if len(id) > 12 {
+    id = id[:12]
+  }
+  return "br-" + id, nil
+}
+
+func updateLndGrpcOptions(lines []string, gateways []string) ([]string, bool) {
+  uniqueGateways := []string{}
+  for _, gw := range gateways {
+    gw = strings.TrimSpace(gw)
+    if gw == "" || stringInSlice(gw, uniqueGateways) {
+      continue
+    }
+    uniqueGateways = append(uniqueGateways, gw)
+  }
   rpclistenOrder := []string{}
   rpclistenSet := map[string]bool{}
-  filteredTop := []string{}
-  for _, line := range top {
+  for _, line := range lines {
     trimmed := strings.TrimSpace(line)
-    if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-      filteredTop = append(filteredTop, line)
-      continue
-    }
-    if strings.HasPrefix(trimmed, "tlsextraip=") || strings.HasPrefix(trimmed, "tlsextradomain=") {
-      continue
-    }
     if strings.HasPrefix(trimmed, "rpclisten=") {
       value := strings.TrimSpace(strings.TrimPrefix(trimmed, "rpclisten="))
       if value != "" && !rpclistenSet[value] {
         rpclistenSet[value] = true
         rpclistenOrder = append(rpclistenOrder, value)
       }
-      continue
     }
-    filteredTop = append(filteredTop, line)
   }
 
-  filteredRest := []string{}
-  for _, line := range rest {
-    trimmed := strings.TrimSpace(line)
-    if strings.HasPrefix(trimmed, "tlsextraip=") || strings.HasPrefix(trimmed, "tlsextradomain=") || strings.HasPrefix(trimmed, "rpclisten=") {
-      continue
-    }
-    filteredRest = append(filteredRest, line)
+  desiredOrder := []string{"127.0.0.1:10009"}
+  for _, gw := range uniqueGateways {
+    desiredOrder = append(desiredOrder, gw+":10009")
   }
-
-  desiredOrder := []string{"127.0.0.1:10009", gateway + ":10009"}
   for _, value := range desiredOrder {
     if !rpclistenSet[value] {
       rpclistenSet[value] = true
@@ -609,25 +684,46 @@ func updateLndGrpcOptions(lines []string, gateway string) ([]string, bool) {
     }
   }
 
-  updated := append([]string{}, filteredTop...)
-  updated = append(updated, fmt.Sprintf("tlsextraip=%s", gateway))
-  updated = append(updated, "tlsextradomain=host.docker.internal")
+  cleaned := []string{}
+  insertIdx := -1
+  for _, line := range lines {
+    trimmed := strings.TrimSpace(line)
+    if trimmed == "[Application Options]" && insertIdx == -1 {
+      cleaned = append(cleaned, line)
+      insertIdx = len(cleaned)
+      continue
+    }
+    if strings.HasPrefix(trimmed, "tlsextraip=") || strings.HasPrefix(trimmed, "tlsextradomain=") || strings.HasPrefix(trimmed, "rpclisten=") {
+      continue
+    }
+    cleaned = append(cleaned, line)
+  }
+  if insertIdx == -1 {
+    insertIdx = 0
+  }
 
+  block := []string{}
+  for _, gw := range uniqueGateways {
+    block = append(block, fmt.Sprintf("tlsextraip=%s", gw))
+  }
+  block = append(block, "tlsextradomain=host.docker.internal")
   added := map[string]bool{}
   for _, value := range desiredOrder {
     if !added[value] {
-      updated = append(updated, "rpclisten="+value)
+      block = append(block, "rpclisten="+value)
       added[value] = true
     }
   }
   for _, value := range rpclistenOrder {
     if !added[value] {
-      updated = append(updated, "rpclisten="+value)
+      block = append(block, "rpclisten="+value)
       added[value] = true
     }
   }
 
-  updated = append(updated, filteredRest...)
+  updated := append([]string{}, cleaned[:insertIdx]...)
+  updated = append(updated, block...)
+  updated = append(updated, cleaned[insertIdx:]...)
 
   changed := len(updated) != len(lines)
   if !changed {
@@ -817,7 +913,7 @@ ADMIN_FILE="$DATA_DIR/lndg-admin.txt"
 mkdir -p "$DATA_DIR"
 
   if [ ! -f "$SETTINGS_FILE" ]; then
-  python initialize.py -d -net "$LNDG_NETWORK" -rpc "$LNDG_RPC_SERVER" -dir "$LNDG_LND_DIR" -u "$LNDG_ADMIN_USER" -pw "$LNDG_ADMIN_PASSWORD" -wn -f
+  python initialize.py -d -net "$LNDG_NETWORK" -rpc "$LNDG_RPC_SERVER" -dir "$LNDG_LND_DIR" -u "$LNDG_ADMIN_USER" --adminpw="$LNDG_ADMIN_PASSWORD" -wn -f
 fi
 
 python - <<'PY'

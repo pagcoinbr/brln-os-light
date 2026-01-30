@@ -237,8 +237,10 @@ export default function Wallet() {
     const type = String(item?.type || '').toLowerCase()
     const network = activityNetwork(item)
     const direction = activityDirection(item)
+    const keysend = Boolean(item?.keysend)
     let label = t('wallet.activity')
-    if (type === 'invoice') label = t('wallet.invoice')
+    if (keysend) label = t('wallet.keysend')
+    else if (type === 'invoice') label = t('wallet.invoice')
     else if (type === 'payment') label = t('wallet.payment')
     else if (network === 'onchain') label = direction === 'out' ? t('wallet.onchainSend') : t('wallet.onchainDeposit')
     else if (type) label = type.charAt(0).toUpperCase() + type.slice(1)
@@ -680,7 +682,6 @@ export default function Wallet() {
 
       <div className="section-card">
         <h3 className="text-lg font-semibold">{t('wallet.recentActivity')}</h3>
-        <p className="mt-1 text-xs text-fog/50">{t('wallet.recentActivityNote')}</p>
         <div className="mt-4 max-h-[360px] overflow-y-auto pr-2">
           <div className="space-y-2 text-sm">
           {summaryError ? (
