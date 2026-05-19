@@ -12,19 +12,9 @@ type Config = {
   tor_reachable: boolean
 }
 
-type CreditState = {
-  credit_id: string
-  status: string
-  amount_sats: number
-  bolt11: string
-  payment_hash: string
-  invoice_expires_at: string
-  paid_at: string | null
-  valid_until: string | null
-  quote_allowance: number
-  quotes_used: number
-  quotes_remaining: number
-}
+// (CreditState removed — operator key from /v1/register is now the gate,
+// rate-limited at 2 rps. The /v1/credit endpoints + per-quote allowance
+// have been retired on the gateway.)
 
 type Registration = {
   registration_id: string
@@ -64,11 +54,6 @@ type Quote = {
 type QuoteResponse = {
   quotes: Quote[]
   best?: Quote
-  credit?: {
-    quotes_used: number
-    quote_allowance: number
-    quotes_remaining: number
-  }
 }
 
 type SwapState = {
@@ -200,7 +185,6 @@ export default function PagcoinSwap() {
   const [pendingKey, setPendingKey] = useState('')
   const [pendingURL, setPendingURL] = useState('')
   const [whoami, setWhoami] = useState<{ operator_id: string; display_name: string; valid_until: string | null } | null>(null)
-  const [credit, setCredit] = useState<CreditState | null>(null)
   const [registration, setRegistration] = useState<Registration | null>(null)
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -254,25 +238,12 @@ export default function PagcoinSwap() {
   const reloadAll = useCallback(async () => {
     setError(null)
     await reloadConfig()
-    // whoami and credit are INDEPENDENT. A failure of one must not skip
-    // the other. The previous early-return caused the post-refresh
-    // "press Save to unlock" behavior: whoami failed on the cold Tor
-    // circuit, we returned, credit stayed null, the swap UI gated off.
     try {
       const who = await proxyWithRetry<{ operator_id: string; display_name: string; valid_until: string | null }>('/v1/whoami')
       setWhoami(who)
     } catch (e) {
       setWhoami(null)
       setError(String((e as Error).message))
-    }
-    try {
-      const c = await proxyWithRetry<CreditState>('/v1/credit/current')
-      setCredit(c)
-    } catch (e) {
-      // 404 no_credit is normal pre-payment.
-      const msg = (e as Error).message
-      if (!msg.toLowerCase().includes('no_credit')) setError(msg)
-      setCredit(null)
     }
   }, [reloadConfig, proxyWithRetry])
 
@@ -304,19 +275,6 @@ export default function PagcoinSwap() {
       setEditingKey(false)
       // After saving, try to reach the gateway to validate.
       await reloadAll()
-    } catch (e) {
-      setError(String((e as Error).message))
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const onMintCredit = async () => {
-    setBusy('mint')
-    setError(null)
-    try {
-      const c = await proxy<CreditState>('/v1/credit', { method: 'POST' })
-      setCredit(c)
     } catch (e) {
       setError(String((e as Error).message))
     } finally {
@@ -377,10 +335,6 @@ export default function PagcoinSwap() {
         return
       }
       setLatestQuote(r.best)
-      // /v1/quote echoes back the post-decrement credit state — keep our UI in sync.
-      if (r.credit) {
-        setCredit((c) => (c ? { ...c, quotes_used: r.credit!.quotes_used, quotes_remaining: r.credit!.quotes_remaining } : c))
-      }
     } catch (e) {
       setError(String((e as Error).message))
     } finally {
@@ -613,59 +567,10 @@ export default function PagcoinSwap() {
         )}
       </section>
 
-      {/* ─── Credit card ─── */}
-      {configured && (
-        <section className="section-card space-y-4">
-          <h2 className="text-lg font-semibold">{t('pagcoinSwap.credit', { defaultValue: 'Crédito de cotações' })}</h2>
-          {credit ? (
-            <div className="space-y-3 text-sm">
-              <div>
-                <span className="text-xs uppercase tracking-wide px-2 py-0.5 rounded-full bg-onyx/40 text-fog/80">{credit.status}</span>
-                {credit.status === 'active' && (
-                  <span className="ml-3 text-fog/60">
-                    {credit.quotes_remaining} / {credit.quote_allowance} cotações restantes
-                  </span>
-                )}
-              </div>
-              {credit.status === 'awaiting_payment' && (
-                <div className="space-y-2">
-                  <p className="text-xs text-fog/60">Pague para ativar (válido por 24h, 50 cotações):</p>
-                  <textarea
-                    readOnly
-                    className="w-full rounded bg-onyx/40 px-2 py-1 font-mono text-[10px] break-all"
-                    rows={4}
-                    value={credit.bolt11}
-                  />
-                  <p className="text-xs text-fog/50">
-                    Expira em {new Date(credit.invoice_expires_at).toLocaleString()}
-                  </p>
-                </div>
-              )}
-              {credit.valid_until && (
-                <p className="text-xs text-fog/50">válido até {new Date(credit.valid_until).toLocaleString()}</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-fog/60">Nenhum crédito ativo. Mintar para liberar cotações:</p>
-          )}
-          <button
-            type="button"
-            disabled={busy === 'mint'}
-            className="text-xs uppercase tracking-wide px-4 py-2 rounded-full bg-brass text-onyx font-semibold disabled:opacity-50"
-            onClick={onMintCredit}
-          >
-            {busy === 'mint' ? 'requesting…' : credit?.status === 'awaiting_payment' ? 'reload current invoice' : 'mint new invoice (100 sats)'}
-          </button>
-        </section>
-      )}
-
       {/* ─── New swap (SideShift-style) ─── */}
-      {configured && credit?.status === 'active' && !activeSwap && (
+      {configured && whoami && !activeSwap && (
         <section className="section-card space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">{t('pagcoinSwap.newSwap', { defaultValue: 'Novo swap' })}</h2>
-            <span className="text-xs text-fog/50">{credit.quotes_remaining}/{credit.quote_allowance} quotes left</span>
-          </div>
+          <h2 className="text-lg font-semibold">{t('pagcoinSwap.newSwap', { defaultValue: 'Novo swap' })}</h2>
 
           {/* SEND panel */}
           <div className="rounded-2xl bg-onyx/40 p-4 border border-fog/5">
