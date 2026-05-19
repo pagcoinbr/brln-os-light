@@ -60,7 +60,10 @@ export function colorFromGroupId(id: string): string {
  * inside TxNode). Top of the bar is solid color, bottom slightly transparent.
  */
 export function fillBarGradient(color: string): string {
-  return `linear-gradient(180deg, ${color} 0%, ${color}aa 100%)`
+  // Use color-mix for the lower stop so this works when `color` is a
+  // var(--utxo-c-*) expression. String-concatenating an "aa" alpha suffix
+  // produces invalid CSS (var(...)aa) and the bar renders empty.
+  return `linear-gradient(180deg, ${color} 0%, ${alpha(color, 67)} 100%)`
 }
 
 /**
