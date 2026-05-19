@@ -74,7 +74,8 @@ const internalRoutes: Record<string, string> = {
   bitcoincore: 'bitcoin-local',
   elements: 'elements',
   depixbuy: 'buy-depix',
-  fswap: 'pay-boleto'
+  fswap: 'pay-boleto',
+  pagcoinswap: 'pagcoin-swap'
 }
 
 const statusStyles: Record<string, string> = {
@@ -444,6 +445,8 @@ export default function AppStore() {
                 ? t('nav.buyDepix')
               : app.id === 'fswap'
                 ? t('nav.payBoleto')
+              : app.id === 'pagcoinswap'
+                ? t('nav.pagcoinSwap')
               : t('appStore.internal')
           const openUrl = app.external_url || (app.port ? `http://${host}:${app.port}` : '')
           const publicPoolUrl = openUrl || `http://${host}:${publicPoolUIPortFallback}`

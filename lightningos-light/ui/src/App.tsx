@@ -29,8 +29,9 @@ import Terminal from './pages/Terminal'
 import BuyDepix from './pages/BuyDepix'
 import Shortcuts from './pages/Shortcuts'
 import PayBoleto from './pages/PayBoleto'
+import PagcoinSwap from './pages/PagcoinSwap'
 import NodeRetirement from './pages/NodeRetirement'
-import { getAuthState, getBitcoinLocalStatus, getBoletoConfig, getDepixConfig, getLndStatus, getProvenanceHealth, getWizardStatus, logoutAuth, type AuthState } from './api'
+import { getApps, getAuthState, getBitcoinLocalStatus, getBoletoConfig, getDepixConfig, getLndStatus, getProvenanceHealth, getWizardStatus, logoutAuth, type AuthState } from './api'
 import { defaultPalette, paletteOrder, resolvePalette, resolveTheme, type PaletteKey, type ThemeMode } from './theme'
 
 const readHashRoute = () => {
@@ -146,6 +147,7 @@ export default function App() {
   const [walletExists, setWalletExists] = useState<boolean | null>(null)
   const [depixEnabled, setDepixEnabled] = useState(false)
   const [boletoEnabled, setBoletoEnabled] = useState(false)
+  const [pagcoinSwapEnabled, setPagcoinSwapEnabled] = useState(false)
   const [externalBitcoinDetected, setExternalBitcoinDetected] = useState(false)
   const [electrsAvailable, setElectrsAvailable] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -176,6 +178,16 @@ export default function App() {
       setBoletoEnabled(false)
     }
   }, [])
+  const refreshPagcoinSwapEnabled = useCallback(async () => {
+    try {
+      const data: any = await getApps()
+      const apps = Array.isArray(data) ? data : data?.apps
+      const swap = (apps || []).find((a: any) => a?.id === 'pagcoinswap')
+      setPagcoinSwapEnabled(Boolean(swap?.installed))
+    } catch {
+      setPagcoinSwapEnabled(false)
+    }
+  }, [])
   const refreshElectrsAvailable = useCallback(async () => {
     try {
       const data: any = await getProvenanceHealth()
@@ -199,6 +211,9 @@ export default function App() {
     const boletoRoute = boletoEnabled
       ? [{ key: 'pay-boleto', label: t('nav.payBoleto'), element: <PayBoleto /> }]
       : []
+    const pagcoinSwapRoute = pagcoinSwapEnabled
+      ? [{ key: 'pagcoin-swap', label: t('nav.pagcoinSwap'), element: <PagcoinSwap /> }]
+      : []
     return [
       { key: 'dashboard', label: t('nav.dashboard'), element: <Dashboard authState={authState} /> },
       { key: 'reports', label: t('nav.reports'), element: <Reports /> },
@@ -220,6 +235,7 @@ export default function App() {
       { key: 'apps', label: t('nav.apps'), element: <AppStore /> },
       ...depixRoute,
       ...boletoRoute,
+      ...pagcoinSwapRoute,
       { key: 'bitcoin', label: t('nav.bitcoinRemote'), element: <BitcoinRemote /> },
       { key: 'bitcoin-local', label: t('nav.bitcoinLocal'), element: <BitcoinLocal /> },
       { key: 'elements', label: t('nav.elements'), element: <Elements /> },
@@ -230,7 +246,7 @@ export default function App() {
       { key: 'logs', label: t('nav.logs'), element: <Logs /> },
       { key: 'node-retirement', label: t('nav.nodeRetirement'), element: <NodeRetirement /> }
     ]
-  }, [authState, depixEnabled, boletoEnabled, electrsAvailable, externalBitcoinDetected, i18n.language, t])
+  }, [authState, depixEnabled, boletoEnabled, pagcoinSwapEnabled, electrsAvailable, externalBitcoinDetected, i18n.language, t])
   const baseRouteKeys = useMemo(() => baseRoutes.map((item) => item.key), [baseRoutes])
   const [menuConfig, setMenuConfig] = useState<MenuConfig>(() => normalizeMenuConfig(readMenuConfig(), baseRouteKeys))
 
@@ -311,24 +327,30 @@ export default function App() {
       if (detail?.id === 'fswap') {
         void refreshBoletoEnabled()
       }
+      if (detail?.id === 'pagcoinswap') {
+        void refreshPagcoinSwapEnabled()
+      }
     }
     void refreshDepixEnabled()
     void refreshBoletoEnabled()
+    void refreshPagcoinSwapEnabled()
     void refreshExternalBitcoinDetected()
     void refreshElectrsAvailable()
     const timer = window.setInterval(refreshDepixEnabled, 30000)
     const boletoTimer = window.setInterval(refreshBoletoEnabled, 30000)
+    const pagcoinSwapTimer = window.setInterval(refreshPagcoinSwapEnabled, 60000)
     const externalBitcoinTimer = window.setInterval(refreshExternalBitcoinDetected, 300000)
     const electrsTimer = window.setInterval(refreshElectrsAvailable, 60000)
     window.addEventListener('apps:changed', handleAppsChanged as EventListener)
     return () => {
       window.clearInterval(timer)
       window.clearInterval(boletoTimer)
+      window.clearInterval(pagcoinSwapTimer)
       window.clearInterval(externalBitcoinTimer)
       window.clearInterval(electrsTimer)
       window.removeEventListener('apps:changed', handleAppsChanged as EventListener)
     }
-  }, [authReady, refreshDepixEnabled, refreshBoletoEnabled, refreshElectrsAvailable, refreshExternalBitcoinDetected])
+  }, [authReady, refreshDepixEnabled, refreshBoletoEnabled, refreshPagcoinSwapEnabled, refreshElectrsAvailable, refreshExternalBitcoinDetected])
 
   useEffect(() => {
     setMenuConfig((current) => {

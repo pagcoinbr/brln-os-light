@@ -49,11 +49,14 @@ func pagcoinSwapURL() string {
 }
 
 func pagcoinSwapDefinition() appDefinition {
+	// ExternalURL intentionally omitted: the onion is unreachable from a
+	// regular browser. The brln-os-light UI surfaces an INTERNAL route
+	// (/pagcoin-swap) that calls a local reverse proxy, which is the only
+	// path that knows how to speak Tor SOCKS to the onion.
 	return appDefinition{
 		ID:          pagcoinSwapAppID,
 		Name:        "Pagcoin Swap",
 		Description: "Troque criptos entre redes via Tor, com taxa anti-bot em sats e cotações de múltiplos provedores.",
-		ExternalURL: pagcoinSwapURL(),
 	}
 }
 
