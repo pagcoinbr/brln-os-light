@@ -250,6 +250,11 @@ func (s *Server) routes() http.Handler {
 	r.HandleFunc("/terminal/ws", s.handleTerminalProxy)
 	r.HandleFunc("/terminal/*", s.handleTerminalProxy)
 
+	// Pagcoin Swap: local config + Tor SOCKS reverse proxy to the gateway onion.
+	r.Get("/api/apps/pagcoinswap/config", s.handlePagcoinSwapConfigGet)
+	r.Post("/api/apps/pagcoinswap/config", s.handlePagcoinSwapConfigPost)
+	r.HandleFunc("/api/apps/pagcoinswap/proxy/*", s.handlePagcoinSwapProxy)
+
 	staticDir := s.cfg.UI.StaticDir
 	r.Get("/*", s.handleSPA(staticDir))
 

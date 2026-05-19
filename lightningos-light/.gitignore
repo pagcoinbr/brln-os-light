@@ -21,3 +21,4 @@ configs/tls/
 # Local dev shell/bootstrap
 .dev-env.local.ps1
 ui/tsconfig.tsbuildinfo
+/dist/

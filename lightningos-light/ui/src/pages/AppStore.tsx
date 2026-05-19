@@ -9,6 +9,7 @@ import robosatsIcon from '../assets/apps/robosats.svg'
 import depixIcon from '../assets/apps/depix.svg'
 import lnbitsIcon from '../assets/apps/lnbits.svg'
 import fswapIcon from '../assets/apps/fswap.png'
+import pagcoinSwapIcon from '../assets/apps/pagcoinswap.png'
 import publicPoolIcon from '../assets/apps/public-pool.svg'
 import electrsIcon from '../assets/apps/electrs.svg'
 import mempoolIcon from '../assets/apps/mempool.svg'
@@ -61,6 +62,7 @@ const iconMap: Record<string, string> = {
   depixbuy: depixIcon,
   lnbits: lnbitsIcon,
   fswap: fswapIcon,
+  pagcoinswap: pagcoinSwapIcon,
   publicpool: publicPoolIcon,
   electrs: electrsIcon,
   mempool: mempoolIcon,
@@ -72,7 +74,8 @@ const internalRoutes: Record<string, string> = {
   bitcoincore: 'bitcoin-local',
   elements: 'elements',
   depixbuy: 'buy-depix',
-  fswap: 'pay-boleto'
+  fswap: 'pay-boleto',
+  pagcoinswap: 'pagcoin-swap'
 }
 
 const statusStyles: Record<string, string> = {
@@ -442,6 +445,8 @@ export default function AppStore() {
                 ? t('nav.buyDepix')
               : app.id === 'fswap'
                 ? t('nav.payBoleto')
+              : app.id === 'pagcoinswap'
+                ? t('nav.pagcoinSwap')
               : t('appStore.internal')
           const openUrl = app.external_url || (app.port ? `http://${host}:${app.port}` : '')
           const publicPoolUrl = openUrl || `http://${host}:${publicPoolUIPortFallback}`
