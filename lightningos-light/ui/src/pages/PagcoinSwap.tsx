@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import QRCode from 'qrcode'
 import { getPagcoinSwapConfig, pagcoinSwapProxy, setPagcoinSwapConfig } from '../api'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -38,6 +39,54 @@ type Registration = {
   api_key?: string
 }
 
+type CatalogEntry = {
+  coin: string
+  network: string
+  name?: string
+  has_memo?: boolean
+}
+
+type ProviderCatalog = {
+  provider_id: string
+  entries: CatalogEntry[]
+}
+
+type Quote = {
+  provider_id: string
+  quote_id: string
+  rate: string
+  to_amount: string
+  min_from_amount: string
+  max_from_amount: string
+  expires_at: string
+}
+
+type QuoteResponse = {
+  quotes: Quote[]
+  best?: Quote
+  credit?: {
+    quotes_used: number
+    quote_allowance: number
+    quotes_remaining: number
+  }
+}
+
+type SwapState = {
+  swap_id: string
+  status: string
+  provider_id: string | null
+  provider_shift_id: string | null
+  from: { coin: string; network: string; amount: string }
+  to: { coin: string; network: string; amount: string | null; address: string | null }
+  deposit_address: string | null
+  deposit_memo?: string
+  expires_at: string
+  settled_at: string | null
+  deposit_seen_at: string | null
+  fail_reason: string | null
+  claim_token?: string
+}
+
 // Thin wrappers around the shared api.ts helpers. These send the
 // X-CSRF-Token + credentials cookie automatically, which the raw fetch()
 // versions did not — that's why the first deploy returned "invalid csrf
@@ -65,6 +114,19 @@ export default function PagcoinSwap() {
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+
+  // Swap UI state
+  const [catalog, setCatalog] = useState<CatalogEntry[]>([])
+  const [fromCoin, setFromCoin] = useState('USDT')
+  const [fromNetwork, setFromNetwork] = useState('tron')
+  const [toCoin, setToCoin] = useState('USDT0')
+  const [toNetwork, setToNetwork] = useState('polygon')
+  const [fromAmount, setFromAmount] = useState('50')
+  const [destAddress, setDestAddress] = useState('')
+  const [latestQuote, setLatestQuote] = useState<Quote | null>(null)
+  const [activeSwap, setActiveSwap] = useState<SwapState | null>(null)
+  const [depositQr, setDepositQr] = useState<string | null>(null)
+  const swapPollRef = useRef<number | null>(null)
 
   const reloadConfig = useCallback(async () => {
     try {
@@ -140,6 +202,128 @@ export default function PagcoinSwap() {
     await reloadAll()
     setBusy(null)
   }
+
+  // Load the provider catalog once the operator key works. Cached server-side
+  // (5 min), so re-renders that hit this are cheap.
+  const loadCatalog = useCallback(async () => {
+    try {
+      const r = await proxy<{ providers: ProviderCatalog[] }>('/v1/coins')
+      const flat = (r.providers ?? []).flatMap((p) => p.entries)
+      // Deduplicate by coin+network.
+      const seen = new Set<string>()
+      const dedup: CatalogEntry[] = []
+      for (const e of flat) {
+        const k = `${e.coin}|${e.network}`
+        if (seen.has(k)) continue
+        seen.add(k)
+        dedup.push(e)
+      }
+      dedup.sort((a, b) => a.coin.localeCompare(b.coin) || a.network.localeCompare(b.network))
+      setCatalog(dedup)
+    } catch (e) {
+      // Catalog failure isn't fatal — the user can type pair manually below.
+      // eslint-disable-next-line no-console
+      console.warn('catalog load failed', e)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (config?.operator_key_set) loadCatalog()
+  }, [config?.operator_key_set, loadCatalog])
+
+  const onQuote = async () => {
+    setBusy('quote')
+    setError(null)
+    setLatestQuote(null)
+    try {
+      const r = await proxy<QuoteResponse>('/v1/quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: { coin: fromCoin, network: fromNetwork },
+          to: { coin: toCoin, network: toNetwork },
+          from_amount: fromAmount
+        })
+      })
+      if (!r.best) {
+        setError('no quote returned')
+        return
+      }
+      setLatestQuote(r.best)
+      // /v1/quote echoes back the post-decrement credit state — keep our UI in sync.
+      if (r.credit) {
+        setCredit((c) => (c ? { ...c, quotes_used: r.credit!.quotes_used, quotes_remaining: r.credit!.quotes_remaining } : c))
+      }
+    } catch (e) {
+      setError(String((e as Error).message))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const onCommitSwap = async () => {
+    if (!latestQuote) return
+    if (!destAddress.trim()) {
+      setError('destination address required')
+      return
+    }
+    setBusy('commit')
+    setError(null)
+    try {
+      const r = await proxy<SwapState>('/v1/swap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider_id: latestQuote.provider_id,
+          quote_id: latestQuote.quote_id,
+          from: { coin: fromCoin, network: fromNetwork },
+          to: { coin: toCoin, network: toNetwork },
+          from_amount: fromAmount,
+          to_amount: latestQuote.to_amount,
+          rate: latestQuote.rate,
+          quote_expires_at: latestQuote.expires_at,
+          to_address: destAddress.trim()
+        })
+      })
+      setActiveSwap(r)
+      setLatestQuote(null)
+      // Render QR for the deposit address.
+      if (r.deposit_address) {
+        const dataUrl = await QRCode.toDataURL(r.deposit_address, { margin: 1, width: 240 })
+        setDepositQr(dataUrl)
+      }
+    } catch (e) {
+      setError(String((e as Error).message))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // Poll the active swap every 5s until terminal.
+  useEffect(() => {
+    if (!activeSwap?.swap_id) return
+    if (['settled', 'failed', 'expired', 'refunded'].includes(activeSwap.status)) return
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const r = await proxy<SwapState>(`/v1/swap/${activeSwap.swap_id}`)
+        if (cancelled) return
+        setActiveSwap(r)
+        if (!['settled', 'failed', 'expired', 'refunded'].includes(r.status)) {
+          swapPollRef.current = window.setTimeout(tick, 5000)
+        }
+      } catch (e) {
+        if (cancelled) return
+        // Tor blip; back off and retry.
+        swapPollRef.current = window.setTimeout(tick, 10_000)
+      }
+    }
+    swapPollRef.current = window.setTimeout(tick, 5000)
+    return () => {
+      cancelled = true
+      if (swapPollRef.current) window.clearTimeout(swapPollRef.current)
+    }
+  }, [activeSwap?.swap_id, activeSwap?.status])
 
   // Poll a pending registration until it's claimed or the invoice expires.
   // The first GET that arrives after `paid_at` wins the claim race and
@@ -324,6 +508,143 @@ export default function PagcoinSwap() {
           >
             {busy === 'mint' ? 'requesting…' : credit?.status === 'awaiting_payment' ? 'reload current invoice' : 'mint new invoice (100 sats)'}
           </button>
+        </section>
+      )}
+
+      {/* ─── New swap ─── */}
+      {configured && credit?.status === 'active' && !activeSwap && (
+        <section className="section-card space-y-4">
+          <h2 className="text-lg font-semibold">{t('pagcoinSwap.newSwap', { defaultValue: 'Novo swap' })}</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-xs text-fog/60 space-y-1">
+              <span>From</span>
+              <select
+                className="w-full rounded bg-onyx/40 px-2 py-1 text-sm"
+                value={`${fromCoin}|${fromNetwork}`}
+                onChange={(e) => {
+                  const [c, n] = e.target.value.split('|')
+                  setFromCoin(c)
+                  setFromNetwork(n)
+                  setLatestQuote(null)
+                }}
+              >
+                {catalog.length === 0 && <option value={`${fromCoin}|${fromNetwork}`}>{fromCoin} ({fromNetwork})</option>}
+                {catalog.map((e) => (
+                  <option key={`${e.coin}|${e.network}`} value={`${e.coin}|${e.network}`}>{e.coin} ({e.network})</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-fog/60 space-y-1">
+              <span>To</span>
+              <select
+                className="w-full rounded bg-onyx/40 px-2 py-1 text-sm"
+                value={`${toCoin}|${toNetwork}`}
+                onChange={(e) => {
+                  const [c, n] = e.target.value.split('|')
+                  setToCoin(c)
+                  setToNetwork(n)
+                  setLatestQuote(null)
+                }}
+              >
+                {catalog.length === 0 && <option value={`${toCoin}|${toNetwork}`}>{toCoin} ({toNetwork})</option>}
+                {catalog.map((e) => (
+                  <option key={`${e.coin}|${e.network}`} value={`${e.coin}|${e.network}`}>{e.coin} ({e.network})</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-fog/60 space-y-1">
+              <span>Amount ({fromCoin})</span>
+              <input
+                className="w-full rounded bg-onyx/40 px-2 py-1 text-sm font-mono"
+                value={fromAmount}
+                onChange={(e) => { setFromAmount(e.target.value); setLatestQuote(null) }}
+                inputMode="decimal"
+                placeholder="50"
+              />
+            </label>
+            <label className="text-xs text-fog/60 space-y-1">
+              <span>Receive at ({toNetwork})</span>
+              <input
+                className="w-full rounded bg-onyx/40 px-2 py-1 text-sm font-mono"
+                value={destAddress}
+                onChange={(e) => setDestAddress(e.target.value)}
+                placeholder={toNetwork === 'tron' ? 'T...' : toNetwork === 'bitcoin' ? 'bc1...' : '0x...'}
+              />
+            </label>
+          </div>
+
+          {latestQuote ? (
+            <div className="rounded-lg bg-onyx/40 p-3 text-sm space-y-1">
+              <div className="flex justify-between"><span className="text-fog/60">Rate:</span><span className="font-mono">{latestQuote.rate}</span></div>
+              <div className="flex justify-between"><span className="text-fog/60">You receive:</span><span className="font-mono">{latestQuote.to_amount} {toCoin}</span></div>
+              <div className="flex justify-between"><span className="text-fog/60">Quote expires:</span><span className="text-xs">{new Date(latestQuote.expires_at).toLocaleString()}</span></div>
+              <div className="text-xs text-fog/50">via {latestQuote.provider_id}</div>
+            </div>
+          ) : null}
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={busy === 'quote' || !fromAmount}
+              className="text-xs uppercase tracking-wide px-4 py-2 rounded-full border border-fog/30 text-fog disabled:opacity-50"
+              onClick={onQuote}
+            >
+              {busy === 'quote' ? 'quoting…' : latestQuote ? 're-quote' : 'get quote'}
+            </button>
+            <button
+              type="button"
+              disabled={busy === 'commit' || !latestQuote || !destAddress.trim()}
+              className="text-xs uppercase tracking-wide px-4 py-2 rounded-full bg-brass text-onyx font-semibold disabled:opacity-50"
+              onClick={onCommitSwap}
+            >
+              {busy === 'commit' ? 'committing…' : 'commit swap'}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* ─── Active swap ─── */}
+      {activeSwap && (
+        <section className="section-card space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">{t('pagcoinSwap.activeSwap', { defaultValue: 'Swap em andamento' })}</h2>
+            <span className="text-xs uppercase tracking-wide px-2 py-0.5 rounded-full bg-onyx/40 text-fog/80">{activeSwap.status}</span>
+          </div>
+          <div className="text-sm space-y-1">
+            <div className="flex justify-between"><span className="text-fog/60">Send:</span><span className="font-mono">{activeSwap.from.amount} {activeSwap.from.coin} ({activeSwap.from.network})</span></div>
+            <div className="flex justify-between"><span className="text-fog/60">Receive:</span><span className="font-mono">{activeSwap.to.amount ?? '…'} {activeSwap.to.coin} ({activeSwap.to.network})</span></div>
+            {activeSwap.to.address && (
+              <div className="flex justify-between gap-2"><span className="text-fog/60">To address:</span><span className="font-mono text-xs break-all text-right">{activeSwap.to.address}</span></div>
+            )}
+          </div>
+          {activeSwap.deposit_address && (
+            <div className="space-y-2">
+              <p className="text-xs text-fog/60">Send the deposit to:</p>
+              {depositQr && <img src={depositQr} alt="deposit address QR" className="bg-white rounded p-2 mx-auto" />}
+              <input
+                readOnly
+                className="w-full rounded bg-onyx/40 px-2 py-1 font-mono text-xs"
+                value={activeSwap.deposit_address}
+                onClick={(e) => (e.currentTarget as HTMLInputElement).select()}
+              />
+              {activeSwap.deposit_memo && (
+                <p className="text-xs text-amber-200">Memo required: <span className="font-mono">{activeSwap.deposit_memo}</span></p>
+              )}
+              <p className="text-xs text-fog/50">Expires at {new Date(activeSwap.expires_at).toLocaleString()}</p>
+            </div>
+          )}
+          {activeSwap.fail_reason && (
+            <p className="text-xs text-red-200">{activeSwap.fail_reason}</p>
+          )}
+          {['settled', 'failed', 'expired', 'refunded'].includes(activeSwap.status) && (
+            <button
+              type="button"
+              className="text-xs uppercase tracking-wide px-4 py-2 rounded-full border border-fog/30 text-fog"
+              onClick={() => { setActiveSwap(null); setDepositQr(null) }}
+            >
+              new swap
+            </button>
+          )}
         </section>
       )}
 
