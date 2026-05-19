@@ -1,0 +1,140 @@
+/*
+ * Global overrides for the "pagcoin" palette.
+ * When html[data-palette="pagcoin"] is set, the dashboard adopts the
+ * info.pagcoin.org neobrutalist look on shared building blocks
+ * (section-card, btn-primary, btn-secondary, input-field, page-bg).
+ *
+ * Pages with bespoke CSS (atlas-*, onchain-*) are NOT covered here;
+ * they will inherit the new page bg + accents but keep their custom
+ * panel chrome unchanged.
+ */
+
+html[data-palette="pagcoin"] {
+  --pagcoin-bg: #e8e8e8;
+  --pagcoin-panel: #f7f7f7;
+  --pagcoin-ink: #111111;
+  --pagcoin-text: #1f1f1f;
+  --pagcoin-muted: #555555;
+  --pagcoin-border: #000000;
+  --pagcoin-shadow: #444444;
+  --pagcoin-shadow-hover: #000000;
+  --pagcoin-input-bg: #ffffff;
+
+  --page-bg: var(--pagcoin-bg);
+  --shadow-panel: 8px 8px 0 0 var(--pagcoin-shadow);
+}
+
+html[data-palette="pagcoin"][data-theme="dark"] {
+  --pagcoin-bg: #1c1c1c;
+  --pagcoin-panel: #2a2a2a;
+  --pagcoin-ink: #ffffff;
+  --pagcoin-text: #ececec;
+  --pagcoin-muted: #9a9a9a;
+  --pagcoin-border: #c8c8c8;
+  --pagcoin-shadow: #000000;
+  --pagcoin-shadow-hover: #ff9500;
+  --pagcoin-input-bg: #1f1f1f;
+}
+
+html[data-palette="pagcoin"] body {
+  background: var(--pagcoin-bg);
+  color: var(--pagcoin-text);
+}
+
+/* Shared building blocks */
+html[data-palette="pagcoin"] .section-card {
+  background: var(--pagcoin-panel);
+  border: 2px solid var(--pagcoin-border);
+  border-radius: 12px;
+  box-shadow: 8px 8px 0 0 var(--pagcoin-shadow);
+  color: var(--pagcoin-text);
+}
+
+html[data-palette="pagcoin"] .btn-primary {
+  background: rgb(245 166 35);
+  color: #111111;
+  border: 2px solid var(--pagcoin-border);
+  border-radius: 10px;
+  box-shadow: 8px 8px 0 0 var(--pagcoin-shadow);
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+html[data-palette="pagcoin"] .btn-primary:hover {
+  background: rgb(255 149 0);
+  color: #111111;
+  box-shadow: 4px 4px 0 0 var(--pagcoin-shadow-hover);
+  transform: translate(2px, 2px);
+}
+
+html[data-palette="pagcoin"] .btn-secondary {
+  background: var(--pagcoin-panel);
+  color: var(--pagcoin-ink);
+  border: 2px solid var(--pagcoin-border);
+  border-radius: 10px;
+  box-shadow: 8px 8px 0 0 var(--pagcoin-shadow);
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+html[data-palette="pagcoin"] .btn-secondary:hover {
+  background: #333333;
+  color: #ffffff;
+  box-shadow: 4px 4px 0 0 var(--pagcoin-shadow-hover);
+  transform: translate(2px, 2px);
+  border-color: var(--pagcoin-border);
+}
+html[data-palette="pagcoin"][data-theme="dark"] .btn-secondary:hover {
+  background: rgb(245 166 35);
+  color: #111111;
+}
+
+html[data-palette="pagcoin"] .input-field {
+  background: var(--pagcoin-input-bg);
+  border: 2px solid var(--pagcoin-border);
+  border-radius: 8px;
+  color: var(--pagcoin-text);
+}
+html[data-palette="pagcoin"] .input-field:focus {
+  box-shadow: 0 0 0 3px rgba(255, 149, 0, 0.35);
+  outline: none;
+}
+
+/* Light-theme text on light bg readability for common dark-on-dark utilities */
+html[data-palette="pagcoin"]:not([data-theme="dark"]) {
+  --color-fog: 31 31 31;
+  --color-ink: 232 232 232;
+  --color-slate: 247 247 247;
+}
+
+/* Sidebar (uses bg-ink/80 Tailwind utility, not section-card) */
+html[data-palette="pagcoin"] #app-sidebar {
+  background: var(--pagcoin-panel) !important;
+  border-color: var(--pagcoin-border) !important;
+  border-right-width: 2px;
+  color: var(--pagcoin-text);
+}
+html[data-palette="pagcoin"] #app-sidebar p,
+html[data-palette="pagcoin"] #app-sidebar span,
+html[data-palette="pagcoin"] #app-sidebar a {
+  color: inherit;
+}
+html[data-palette="pagcoin"] #app-sidebar .text-fog\/60,
+html[data-palette="pagcoin"] #app-sidebar .text-fog\/50,
+html[data-palette="pagcoin"] #app-sidebar .text-fog\/70 {
+  color: var(--pagcoin-muted) !important;
+}
+html[data-palette="pagcoin"] #app-sidebar .border-white\/10 {
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+html[data-palette="pagcoin"][data-theme="dark"] #app-sidebar .border-white\/10 {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+html[data-palette="pagcoin"] #app-sidebar .bg-white\/5 {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+html[data-palette="pagcoin"][data-theme="dark"] #app-sidebar .bg-white\/5 {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}

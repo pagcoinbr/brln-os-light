@@ -9,6 +9,7 @@ export type PaletteKey =
   | 'aurora'
   | 'ember'
   | 'slate'
+  | 'pagcoin'
 
 export const paletteOrder: PaletteKey[] = [
   'teal',
@@ -18,7 +19,8 @@ export const paletteOrder: PaletteKey[] = [
   'forest',
   'aurora',
   'ember',
-  'slate'
+  'slate',
+  'pagcoin'
 ]
 
 export const defaultPalette: PaletteKey = 'teal'

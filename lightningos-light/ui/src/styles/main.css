@@ -124,6 +124,11 @@ html[data-palette="slate"] {
   --palette-secondary: 148 163 184;
 }
 
+html[data-palette="pagcoin"] {
+  --palette-primary: 245 166 35;   /* bitcoin orange #f5a623 */
+  --palette-secondary: 255 149 0;  /* bitcoin orange #ff9500 */
+}
+
 body {
   font-family: 'Space Grotesk', sans-serif;
   background: var(--page-bg);
