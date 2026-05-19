@@ -232,19 +232,41 @@ export default function PagcoinSwap() {
     }
   }, [])
 
+  // Fetch one /v1 endpoint via the local Tor proxy with a single retry on
+  // transient failures. The Tor circuit to the gateway onion is often cold
+  // on the first request after a page refresh — the first attempt times out
+  // or fails routing, the second usually succeeds. Treat 4xx errors as
+  // terminal (no retry), only retry on opaque proxy / Tor-side errors.
+  const proxyWithRetry = useCallback(async <T,>(path: string): Promise<T> => {
+    try {
+      return await proxy<T>(path)
+    } catch (e) {
+      const msg = (e as Error).message ?? ''
+      // 4xx-shaped errors are propagated unchanged (no point retrying).
+      if (/_/.test(msg) && !/tor|proxy|timeout|fetch|network/i.test(msg)) {
+        throw e
+      }
+      await new Promise((r) => setTimeout(r, 1500))
+      return await proxy<T>(path)
+    }
+  }, [])
+
   const reloadAll = useCallback(async () => {
     setError(null)
     await reloadConfig()
+    // whoami and credit are INDEPENDENT. A failure of one must not skip
+    // the other. The previous early-return caused the post-refresh
+    // "press Save to unlock" behavior: whoami failed on the cold Tor
+    // circuit, we returned, credit stayed null, the swap UI gated off.
     try {
-      const who = await proxy<{ operator_id: string; display_name: string; valid_until: string | null }>('/v1/whoami')
+      const who = await proxyWithRetry<{ operator_id: string; display_name: string; valid_until: string | null }>('/v1/whoami')
       setWhoami(who)
     } catch (e) {
       setWhoami(null)
       setError(String((e as Error).message))
-      return
     }
     try {
-      const c = await proxy<CreditState>('/v1/credit/current')
+      const c = await proxyWithRetry<CreditState>('/v1/credit/current')
       setCredit(c)
     } catch (e) {
       // 404 no_credit is normal pre-payment.
@@ -252,7 +274,7 @@ export default function PagcoinSwap() {
       if (!msg.toLowerCase().includes('no_credit')) setError(msg)
       setCredit(null)
     }
-  }, [reloadConfig])
+  }, [reloadConfig, proxyWithRetry])
 
   useEffect(() => {
     reloadConfig()
