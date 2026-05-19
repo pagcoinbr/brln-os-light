@@ -102,12 +102,70 @@ html[data-palette="pagcoin"] .input-field:focus {
   outline: none;
 }
 
-/* Light-theme text on light bg readability for common dark-on-dark utilities */
+/* Remap the Tailwind color tokens so bg-ink/*, bg-slate/*, text-fog/*,
+   border-white/* utilities resolve to pagcoin palette in both themes. */
 html[data-palette="pagcoin"]:not([data-theme="dark"]) {
   --color-fog: 31 31 31;
   --color-ink: 232 232 232;
   --color-slate: 247 247 247;
+  --color-midnight: 0 0 0;
 }
+html[data-palette="pagcoin"][data-theme="dark"] {
+  --color-fog: 236 236 236;
+  --color-ink: 42 42 42;
+  --color-slate: 28 28 28;
+  --color-midnight: 200 200 200;
+}
+
+/* The .onchain-hero in OnchainHub uses a hardcoded dark gradient + radial
+   glow + grid-line overlay. Replace with a flat brutalist card. */
+html[data-palette="pagcoin"] .onchain-hero {
+  background: var(--pagcoin-panel) !important;
+  border: 2px solid var(--pagcoin-border) !important;
+  border-radius: 12px;
+  box-shadow: 8px 8px 0 0 var(--pagcoin-shadow);
+}
+html[data-palette="pagcoin"] .onchain-hero::before,
+html[data-palette="pagcoin"] .onchain-hero::after {
+  display: none !important;
+}
+
+/* Onchain page mini-panels */
+html[data-palette="pagcoin"] .onchain-kpi,
+html[data-palette="pagcoin"] .onchain-pill,
+html[data-palette="pagcoin"] .onchain-row {
+  background-color: var(--pagcoin-input-bg) !important;
+  border-color: var(--pagcoin-border) !important;
+  color: var(--pagcoin-text);
+}
+html[data-palette="pagcoin"] .onchain-kpi p,
+html[data-palette="pagcoin"] .onchain-pill p:first-child,
+html[data-palette="pagcoin"] .onchain-table-head,
+html[data-palette="pagcoin"] .onchain-cell::before {
+  color: var(--pagcoin-muted) !important;
+}
+html[data-palette="pagcoin"] .onchain-link {
+  color: var(--pagcoin-text);
+}
+html[data-palette="pagcoin"] .onchain-link:hover {
+  color: rgb(255 149 0);
+}
+
+/* Dialogs (UtxoBumpDialog, UtxoSpendDialog, UtxoOpenChannelDialog) use
+   bg-slate/95 + border-white/10 directly. With --color-slate remapped these
+   pick up the new tone, but force a thicker border + harder shadow for
+   brutalist consistency. */
+html[data-palette="pagcoin"] [class~="bg-slate\/95"] {
+  border-width: 2px !important;
+  border-color: var(--pagcoin-border) !important;
+  box-shadow: 8px 8px 0 0 var(--pagcoin-shadow) !important;
+}
+
+/* UtxoCanvas / WalletFlow TxNode cards keep their original dark-navy body,
+   white text, and semantic teal/amber/slate accent stripes in every palette.
+   The pagcoin theme intentionally does NOT re-skin these — the dark card is
+   the readable, agreed-upon look. (--utxo-card-body falls back to the dark
+   navy gradient defined in utxoStyles.ts when no override is set.) */
 
 /* Sidebar (uses bg-ink/80 Tailwind utility, not section-card) */
 html[data-palette="pagcoin"] #app-sidebar {

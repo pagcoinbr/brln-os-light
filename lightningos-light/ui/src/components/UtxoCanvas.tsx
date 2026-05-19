@@ -342,18 +342,18 @@ export default function UtxoCanvas({
               transition: 'box-shadow 120ms ease, outline 120ms ease'
             }}
             className={clsx(
-              'rounded-2xl border-2 overflow-hidden',
+              'utxo-card rounded-2xl border-2 overflow-hidden',
               utxo.confirmations === 0 && 'animate-pulse',
               utxo.locked && 'opacity-70'
             )}
             title={`${utxo.outpoint}\n${utxo.address}\n${utxo.amount_sat.toLocaleString()} sat`}
           >
             <div
-              className="absolute left-0 right-0 top-0 h-1"
+              className="utxo-stripe-top absolute left-0 right-0 top-0 h-1"
               style={{ background: accentStripeTop(color) }}
             />
             <div
-              className="absolute left-0 top-0 bottom-0 w-1"
+              className="utxo-stripe-left absolute left-0 top-0 bottom-0 w-1"
               style={{ background: accentStripeLeft(color) }}
             />
             <div className="flex h-full flex-col justify-between p-2 pl-3 pointer-events-none">

@@ -2,11 +2,15 @@
 // the coin-selector UtxoCanvas blocks. Keep style decisions for "ours" /
 // "external" / group coloring in here so the two views never drift visually.
 
+// All palette colors are read from CSS variables with hardcoded fallbacks,
+// so themes (palette-pagcoin.css etc.) can re-skin without code changes.
+// The helpers below compose alpha-tinted variants via color-mix(), which
+// works on any CSS color value (including var() lookups).
 export const PALETTE = {
-  oursLive: '#14b8a6', // teal — ours still unspent
-  oursSpent: '#f59e0b', // amber — ours, moved on
-  external: '#64748b', // slate — not ours
-  locked: '#94a3b8', // muted slate — locked from coinselect
+  oursLive: 'var(--utxo-c-ours-live, #14b8a6)',   // teal — ours still unspent
+  oursSpent: 'var(--utxo-c-ours-spent, #f59e0b)', // amber — ours, moved on
+  external: 'var(--utxo-c-external, #64748b)',    // slate — not ours
+  locked: 'var(--utxo-c-locked, #94a3b8)',        // muted slate — locked
   /** color cycle for user-created UTXO groups */
   groupCycle: [
     '#14b8a6',
@@ -19,6 +23,10 @@ export const PALETTE = {
     '#facc15'
   ]
 } as const
+
+function alpha(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`
+}
 
 export type BarKind = 'ours-live' | 'ours-spent' | 'external' | 'locked'
 
@@ -60,26 +68,31 @@ export function fillBarGradient(color: string): string {
  * cards). Dark navy → slate; the color is conveyed via border + accent
  * stripes, not by filling the whole block.
  */
-export const CARD_BODY_GRADIENT = 'linear-gradient(180deg, #0b1220 0%, #0f172a 100%)'
+// Reads from --utxo-card-body so palettes can re-skin it. Default in main.css
+// keeps the original dark-navy gradient.
+export const CARD_BODY_GRADIENT = 'var(--utxo-card-body, linear-gradient(180deg, #0b1220 0%, #0f172a 100%))'
 
 /** Glow for a TxNode bar — only applied to "ours" bars. */
 export function barGlow(color: string, isOurs: boolean): string | undefined {
-  return isOurs ? `0 0 0 1px ${color}, 0 0 8px ${color}55` : undefined
+  return isOurs ? `0 0 0 1px ${color}, 0 0 8px ${alpha(color, 33)}` : undefined
 }
 
-/** Box shadow for a UtxoCanvas card — always glowing softly, brighter when selected. */
+/** Box shadow for a UtxoCanvas card. The halo color is read from a CSS var
+ *  so palettes can replace the per-status glow with a flat shadow. */
 export function cardShadow(color: string, isSelected: boolean): string {
+  const haloColor = `var(--utxo-card-halo, ${alpha(color, 33)})`
+  const haloSelected = `var(--utxo-card-halo-selected, ${alpha(color, 67)})`
   return isSelected
-    ? `0 0 0 2px ${color} inset, 0 0 14px ${color}aa`
-    : `0 0 10px ${color}55, 0 4px 14px rgba(0,0,0,0.45)`
+    ? `0 0 0 2px ${color} inset, 0 0 14px ${haloSelected}`
+    : `0 0 10px ${haloColor}, 0 4px 14px rgba(0,0,0,0.45)`
 }
 
 /** Decorative accent stripe for the top edge of a UtxoCanvas card. */
 export function accentStripeTop(color: string): string {
-  return `linear-gradient(90deg, ${color} 0%, ${color}aa 50%, ${color}55 100%)`
+  return `linear-gradient(90deg, ${color} 0%, ${alpha(color, 67)} 50%, ${alpha(color, 33)} 100%)`
 }
 
 /** Decorative accent stripe for the left edge of a UtxoCanvas card. */
 export function accentStripeLeft(color: string): string {
-  return `linear-gradient(180deg, ${color}cc 0%, ${color}55 100%)`
+  return `linear-gradient(180deg, ${alpha(color, 80)} 0%, ${alpha(color, 33)} 100%)`
 }

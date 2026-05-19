@@ -293,9 +293,10 @@ export default function TxNode({ data, selected }: NodeProps<TxNodeData>) {
 
   return (
     <div
+      className="txnode-card"
       style={{
         width: TX_NODE_WIDTH,
-        background: 'linear-gradient(180deg, #0b1220 0%, #0f172a 100%)',
+        background: 'var(--utxo-card-body, linear-gradient(180deg, #0b1220 0%, #0f172a 100%))',
         border: `2px solid ${selected ? '#fafafa' : headerBorder}`,
         borderRadius: 14,
         overflow: 'hidden',
