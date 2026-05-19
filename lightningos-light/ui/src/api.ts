@@ -793,3 +793,17 @@ export const createBoletoQuote = (barcode: string) =>
   request('/api/boleto/quote', { method: 'POST', body: JSON.stringify({ barcode }) })
 export const getBoletoStatus = (paymentHash: string) =>
   request(`/api/boleto/status/${encodeURIComponent(paymentHash)}`)
+
+// ── Pagcoin Swap (multi-provider swap gateway, Tor onion proxy) ──────
+export const getPagcoinSwapConfig = () => request('/api/apps/pagcoinswap/config')
+export const setPagcoinSwapConfig = (
+  patch: Partial<{ operator_key: string; gateway_url: string; socks_addr: string }>
+) =>
+  request('/api/apps/pagcoinswap/config', {
+    method: 'POST',
+    body: JSON.stringify(patch)
+  })
+// Generic forwarder. The trailing path is appended to /api/apps/pagcoinswap/proxy/
+// so e.g. ('/v1/whoami') hits <onion>/v1/whoami via Tor SOCKS.
+export const pagcoinSwapProxy = (path: string, init?: RequestInit) =>
+  request(`/api/apps/pagcoinswap/proxy${path}`, init)

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { getPagcoinSwapConfig, pagcoinSwapProxy, setPagcoinSwapConfig } from '../api'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -37,38 +38,17 @@ type Registration = {
   api_key?: string
 }
 
-async function fetchConfig(): Promise<Config> {
-  const r = await fetch('/api/apps/pagcoinswap/config')
-  if (!r.ok) throw new Error(`config ${r.status}`)
-  return r.json()
-}
-
-async function saveConfig(patch: Partial<{ operator_key: string; gateway_url: string }>): Promise<Config> {
-  const r = await fetch('/api/apps/pagcoinswap/config', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch)
-  })
-  if (!r.ok) {
-    const text = await r.text()
-    throw new Error(`config save ${r.status}: ${text}`)
-  }
-  return r.json()
-}
+// Thin wrappers around the shared api.ts helpers. These send the
+// X-CSRF-Token + credentials cookie automatically, which the raw fetch()
+// versions did not — that's why the first deploy returned "invalid csrf
+// token" on every POST.
+const fetchConfig = (): Promise<Config> => getPagcoinSwapConfig() as Promise<Config>
+const saveConfig = (
+  patch: Partial<{ operator_key: string; gateway_url: string }>
+): Promise<Config> => setPagcoinSwapConfig(patch) as Promise<Config>
 
 async function proxy<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(`/api/apps/pagcoinswap/proxy${path}`, init)
-  const ct = r.headers.get('content-type') || ''
-  if (ct.includes('application/json')) {
-    const json = await r.json()
-    if (!r.ok) {
-      const msg = json?.error || json?.detail || `proxy ${r.status}`
-      throw new Error(msg)
-    }
-    return json as T
-  }
-  if (!r.ok) throw new Error(`proxy ${r.status}`)
-  return (await r.text()) as unknown as T
+  return (await pagcoinSwapProxy(path, init)) as T
 }
 
 // ─── page ───────────────────────────────────────────────────────────────────

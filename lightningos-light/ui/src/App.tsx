@@ -211,9 +211,8 @@ export default function App() {
     const boletoRoute = boletoEnabled
       ? [{ key: 'pay-boleto', label: t('nav.payBoleto'), element: <PayBoleto /> }]
       : []
-    const pagcoinSwapRoute = pagcoinSwapEnabled
-      ? [{ key: 'pagcoin-swap', label: t('nav.pagcoinSwap'), element: <PagcoinSwap /> }]
-      : []
+    // Pagcoin Swap is intentionally NOT a baseRoute — see addonRoutes below.
+    // It's an App-Store-launched addon, not a top-level system feature.
     return [
       { key: 'dashboard', label: t('nav.dashboard'), element: <Dashboard authState={authState} /> },
       { key: 'reports', label: t('nav.reports'), element: <Reports /> },
@@ -235,7 +234,6 @@ export default function App() {
       { key: 'apps', label: t('nav.apps'), element: <AppStore /> },
       ...depixRoute,
       ...boletoRoute,
-      ...pagcoinSwapRoute,
       { key: 'bitcoin', label: t('nav.bitcoinRemote'), element: <BitcoinRemote /> },
       { key: 'bitcoin-local', label: t('nav.bitcoinLocal'), element: <BitcoinLocal /> },
       { key: 'elements', label: t('nav.elements'), element: <Elements /> },
@@ -246,7 +244,18 @@ export default function App() {
       { key: 'logs', label: t('nav.logs'), element: <Logs /> },
       { key: 'node-retirement', label: t('nav.nodeRetirement'), element: <NodeRetirement /> }
     ]
-  }, [authState, depixEnabled, boletoEnabled, pagcoinSwapEnabled, electrsAvailable, externalBitcoinDetected, i18n.language, t])
+  }, [authState, depixEnabled, boletoEnabled, electrsAvailable, externalBitcoinDetected, i18n.language, t])
+
+  // Addon routes: reachable via URL (so the App Store card's Open button
+  // works) but intentionally NOT added to the sidebar. Pagcoin Swap is
+  // launched from the App Store, not promoted as a top-level system
+  // feature.
+  const addonRoutes = useMemo(
+    () => (pagcoinSwapEnabled
+      ? [{ key: 'pagcoin-swap', label: t('nav.pagcoinSwap'), element: <PagcoinSwap /> }]
+      : []),
+    [pagcoinSwapEnabled, t]
+  )
   const baseRouteKeys = useMemo(() => baseRoutes.map((item) => item.key), [baseRoutes])
   const [menuConfig, setMenuConfig] = useState<MenuConfig>(() => normalizeMenuConfig(readMenuConfig(), baseRouteKeys))
 
@@ -380,8 +389,11 @@ export default function App() {
     [menuRoutes, wizardHidden, wizardRoute]
   )
   const allRoutes = useMemo(
-    () => (wizardHidden ? baseRoutes : [wizardRoute, ...baseRoutes]),
-    [baseRoutes, wizardHidden, wizardRoute]
+    () =>
+      wizardHidden
+        ? [...baseRoutes, ...addonRoutes]
+        : [wizardRoute, ...baseRoutes, ...addonRoutes],
+    [baseRoutes, addonRoutes, wizardHidden, wizardRoute]
   )
 
   useEffect(() => {
