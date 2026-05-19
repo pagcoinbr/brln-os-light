@@ -199,7 +199,7 @@ export default function PagcoinSwap() {
   const [editingKey, setEditingKey] = useState(false)
   const [pendingKey, setPendingKey] = useState('')
   const [pendingURL, setPendingURL] = useState('')
-  const [whoami, setWhoami] = useState<{ operator_id: string; display_name: string } | null>(null)
+  const [whoami, setWhoami] = useState<{ operator_id: string; display_name: string; valid_until: string | null } | null>(null)
   const [credit, setCredit] = useState<CreditState | null>(null)
   const [registration, setRegistration] = useState<Registration | null>(null)
   const [displayName, setDisplayName] = useState('')
@@ -236,7 +236,7 @@ export default function PagcoinSwap() {
     setError(null)
     await reloadConfig()
     try {
-      const who = await proxy<{ operator_id: string; display_name: string }>('/v1/whoami')
+      const who = await proxy<{ operator_id: string; display_name: string; valid_until: string | null }>('/v1/whoami')
       setWhoami(who)
     } catch (e) {
       setWhoami(null)
@@ -257,6 +257,17 @@ export default function PagcoinSwap() {
   useEffect(() => {
     reloadConfig()
   }, [reloadConfig])
+
+  // Once we know the operator key is configured (whether from a fresh save
+  // or persisted across a hard refresh), pull whoami + current credit. The
+  // bug pre-fix was: initial mount only ran reloadConfig, so even though
+  // operator_key_set=true the swap UI stayed gated because `credit` was
+  // null until the user clicked Save (which calls reloadAll).
+  useEffect(() => {
+    if (config?.operator_key_set) {
+      void reloadAll()
+    }
+  }, [config?.operator_key_set, reloadAll])
 
   const onSaveConfig = async () => {
     setBusy('save-config')
@@ -561,9 +572,22 @@ export default function PagcoinSwap() {
           </button>
         </div>
         {whoami && (
-          <p className="text-xs text-fog/60">
-            connected as <span className="font-mono">{whoami.display_name}</span> (id <span className="font-mono">{whoami.operator_id.slice(0, 8)}…</span>)
-          </p>
+          <div className="text-xs text-fog/60 space-y-0.5">
+            <p>connected as <span className="font-mono">{whoami.display_name}</span> (id <span className="font-mono">{whoami.operator_id.slice(0, 8)}…</span>)</p>
+            {whoami.valid_until ? (
+              <p>
+                subscription valid until <span className="font-mono">{new Date(whoami.valid_until).toLocaleDateString()}</span>
+                {(() => {
+                  const days = Math.floor((new Date(whoami.valid_until!).getTime() - Date.now()) / 86_400_000)
+                  if (days < 0) return <span className="text-red-300 ml-1">(expired)</span>
+                  if (days < 14) return <span className="text-amber-300 ml-1">({days} days left)</span>
+                  return <span className="text-fog/40 ml-1">({days} days left)</span>
+                })()}
+              </p>
+            ) : (
+              <p className="text-fog/40">no expiry (internal operator)</p>
+            )}
+          </div>
         )}
       </section>
 
@@ -795,7 +819,7 @@ export default function PagcoinSwap() {
           <h2 className="text-lg font-semibold">{t('pagcoinSwap.register', { defaultValue: 'Registrar operador' })}</h2>
           <p className="text-sm text-fog/60">
             {t('pagcoinSwap.registerHint', {
-              defaultValue: 'Pague 1.000 sats via Lightning para criar uma chave de operator. A chave é salva automaticamente neste nó assim que o pagamento confirma.'
+              defaultValue: 'Pague 1.000 sats via Lightning para criar uma chave de operator válida por 6 meses. A chave é salva automaticamente neste nó assim que o pagamento confirma.'
             })}
           </p>
           {!registration && (
