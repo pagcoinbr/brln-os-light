@@ -87,6 +87,97 @@ type SwapState = {
   claim_token?: string
 }
 
+// Stable hue per coin so the placeholder badge gets a recognizable color.
+// Hash → 360deg, used as HSL. Looks varied without any asset shipping.
+function coinHue(coin: string): number {
+  let h = 0
+  for (let i = 0; i < coin.length; i++) h = (h * 31 + coin.charCodeAt(i)) >>> 0
+  return h % 360
+}
+
+function CoinBadge({ coin, size = 36 }: { coin: string; size?: number }) {
+  const hue = coinHue(coin)
+  const initials = coin.slice(0, 3).toUpperCase()
+  return (
+    <div
+      className="flex items-center justify-center rounded-full font-semibold text-onyx"
+      style={{
+        width: size,
+        height: size,
+        background: `hsl(${hue} 70% 60%)`,
+        fontSize: size * 0.35
+      }}
+    >
+      {initials}
+    </div>
+  )
+}
+
+function CoinPickerModal(props: {
+  open: boolean
+  catalog: CatalogEntry[]
+  filter: string
+  setFilter: (v: string) => void
+  onPick: (c: string, n: string) => void
+  onClose: () => void
+}) {
+  if (!props.open) return null
+  const f = props.filter.trim().toLowerCase()
+  const filtered = f
+    ? props.catalog.filter(
+        (e) =>
+          e.coin.toLowerCase().includes(f) ||
+          e.network.toLowerCase().includes(f) ||
+          (e.name ?? '').toLowerCase().includes(f)
+      )
+    : props.catalog
+  return (
+    <div
+      className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-start justify-center pt-20 px-4"
+      onClick={props.onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl bg-onyx shadow-xl border border-fog/10 overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-fog/10">
+          <input
+            autoFocus
+            className="w-full rounded-lg bg-onyx/60 px-3 py-2 text-sm"
+            placeholder="Search coin or network…"
+            value={props.filter}
+            onChange={(e) => props.setFilter(e.target.value)}
+          />
+        </div>
+        <ul className="max-h-[60vh] overflow-y-auto">
+          {filtered.length === 0 && (
+            <li className="p-6 text-sm text-fog/50 text-center">No matches</li>
+          )}
+          {filtered.map((e) => (
+            <li
+              key={`${e.coin}|${e.network}`}
+              className="flex items-center gap-3 p-3 hover:bg-onyx/60 cursor-pointer border-b border-fog/5 last:border-0"
+              onClick={() => {
+                props.onPick(e.coin, e.network)
+                props.onClose()
+              }}
+            >
+              <CoinBadge coin={e.coin} size={32} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium">{e.coin}</div>
+                <div className="text-xs text-fog/50">{e.name ?? e.coin}</div>
+              </div>
+              <div className="text-xs uppercase tracking-wide px-2 py-0.5 rounded-full bg-onyx/40 text-fog/70">
+                {e.network}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
 // Thin wrappers around the shared api.ts helpers. These send the
 // X-CSRF-Token + credentials cookie automatically, which the raw fetch()
 // versions did not — that's why the first deploy returned "invalid csrf
@@ -123,6 +214,9 @@ export default function PagcoinSwap() {
   const [toNetwork, setToNetwork] = useState('polygon')
   const [fromAmount, setFromAmount] = useState('50')
   const [destAddress, setDestAddress] = useState('')
+  const [fromPickerOpen, setFromPickerOpen] = useState(false)
+  const [toPickerOpen, setToPickerOpen] = useState(false)
+  const [pickerFilter, setPickerFilter] = useState('')
   const [latestQuote, setLatestQuote] = useState<Quote | null>(null)
   const [activeSwap, setActiveSwap] = useState<SwapState | null>(null)
   const [depositQr, setDepositQr] = useState<string | null>(null)
@@ -259,6 +353,14 @@ export default function PagcoinSwap() {
     } finally {
       setBusy(null)
     }
+  }
+
+  const onSwapDirection = () => {
+    setFromCoin(toCoin)
+    setFromNetwork(toNetwork)
+    setToCoin(fromCoin)
+    setToNetwork(fromNetwork)
+    setLatestQuote(null)
   }
 
   const onCommitSwap = async () => {
@@ -511,82 +613,103 @@ export default function PagcoinSwap() {
         </section>
       )}
 
-      {/* ─── New swap ─── */}
+      {/* ─── New swap (SideShift-style) ─── */}
       {configured && credit?.status === 'active' && !activeSwap && (
         <section className="section-card space-y-4">
-          <h2 className="text-lg font-semibold">{t('pagcoinSwap.newSwap', { defaultValue: 'Novo swap' })}</h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-xs text-fog/60 space-y-1">
-              <span>From</span>
-              <select
-                className="w-full rounded bg-onyx/40 px-2 py-1 text-sm"
-                value={`${fromCoin}|${fromNetwork}`}
-                onChange={(e) => {
-                  const [c, n] = e.target.value.split('|')
-                  setFromCoin(c)
-                  setFromNetwork(n)
-                  setLatestQuote(null)
-                }}
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">{t('pagcoinSwap.newSwap', { defaultValue: 'Novo swap' })}</h2>
+            <span className="text-xs text-fog/50">{credit.quotes_remaining}/{credit.quote_allowance} quotes left</span>
+          </div>
+
+          {/* SEND panel */}
+          <div className="rounded-2xl bg-onyx/40 p-4 border border-fog/5">
+            <div className="text-xs uppercase tracking-wide text-fog/50 mb-2">You send</div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="flex items-center gap-2 rounded-full bg-onyx/60 hover:bg-onyx/80 transition px-2 py-1 pr-3 border border-fog/10"
+                onClick={() => { setPickerFilter(''); setFromPickerOpen(true) }}
               >
-                {catalog.length === 0 && <option value={`${fromCoin}|${fromNetwork}`}>{fromCoin} ({fromNetwork})</option>}
-                {catalog.map((e) => (
-                  <option key={`${e.coin}|${e.network}`} value={`${e.coin}|${e.network}`}>{e.coin} ({e.network})</option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs text-fog/60 space-y-1">
-              <span>To</span>
-              <select
-                className="w-full rounded bg-onyx/40 px-2 py-1 text-sm"
-                value={`${toCoin}|${toNetwork}`}
-                onChange={(e) => {
-                  const [c, n] = e.target.value.split('|')
-                  setToCoin(c)
-                  setToNetwork(n)
-                  setLatestQuote(null)
-                }}
-              >
-                {catalog.length === 0 && <option value={`${toCoin}|${toNetwork}`}>{toCoin} ({toNetwork})</option>}
-                {catalog.map((e) => (
-                  <option key={`${e.coin}|${e.network}`} value={`${e.coin}|${e.network}`}>{e.coin} ({e.network})</option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs text-fog/60 space-y-1">
-              <span>Amount ({fromCoin})</span>
+                <CoinBadge coin={fromCoin} />
+                <div className="text-left">
+                  <div className="text-sm font-semibold leading-none">{fromCoin}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-fog/50">{fromNetwork}</div>
+                </div>
+                <span className="text-fog/40 ml-1">▾</span>
+              </button>
               <input
-                className="w-full rounded bg-onyx/40 px-2 py-1 text-sm font-mono"
+                className="flex-1 bg-transparent text-right text-2xl font-mono outline-none placeholder-fog/30"
                 value={fromAmount}
                 onChange={(e) => { setFromAmount(e.target.value); setLatestQuote(null) }}
                 inputMode="decimal"
-                placeholder="50"
+                placeholder="0"
               />
-            </label>
-            <label className="text-xs text-fog/60 space-y-1">
-              <span>Receive at ({toNetwork})</span>
-              <input
-                className="w-full rounded bg-onyx/40 px-2 py-1 text-sm font-mono"
-                value={destAddress}
-                onChange={(e) => setDestAddress(e.target.value)}
-                placeholder={toNetwork === 'tron' ? 'T...' : toNetwork === 'bitcoin' ? 'bc1...' : '0x...'}
-              />
-            </label>
+            </div>
           </div>
 
-          {latestQuote ? (
-            <div className="rounded-lg bg-onyx/40 p-3 text-sm space-y-1">
-              <div className="flex justify-between"><span className="text-fog/60">Rate:</span><span className="font-mono">{latestQuote.rate}</span></div>
-              <div className="flex justify-between"><span className="text-fog/60">You receive:</span><span className="font-mono">{latestQuote.to_amount} {toCoin}</span></div>
-              <div className="flex justify-between"><span className="text-fog/60">Quote expires:</span><span className="text-xs">{new Date(latestQuote.expires_at).toLocaleString()}</span></div>
-              <div className="text-xs text-fog/50">via {latestQuote.provider_id}</div>
-            </div>
-          ) : null}
+          {/* Direction swap button */}
+          <div className="flex justify-center -my-2">
+            <button
+              type="button"
+              aria-label="swap direction"
+              className="rounded-full bg-onyx border border-fog/20 w-10 h-10 flex items-center justify-center text-fog hover:text-brass hover:border-brass/40 transition"
+              onClick={onSwapDirection}
+            >
+              <span style={{ display: 'inline-block', transform: 'rotate(90deg)' }}>⇄</span>
+            </button>
+          </div>
 
-          <div className="flex gap-2">
+          {/* GET panel */}
+          <div className="rounded-2xl bg-onyx/40 p-4 border border-fog/5">
+            <div className="text-xs uppercase tracking-wide text-fog/50 mb-2">You get</div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="flex items-center gap-2 rounded-full bg-onyx/60 hover:bg-onyx/80 transition px-2 py-1 pr-3 border border-fog/10"
+                onClick={() => { setPickerFilter(''); setToPickerOpen(true) }}
+              >
+                <CoinBadge coin={toCoin} />
+                <div className="text-left">
+                  <div className="text-sm font-semibold leading-none">{toCoin}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-fog/50">{toNetwork}</div>
+                </div>
+                <span className="text-fog/40 ml-1">▾</span>
+              </button>
+              <div className="flex-1 text-right text-2xl font-mono text-fog/60">
+                {latestQuote ? latestQuote.to_amount : '—'}
+              </div>
+            </div>
+          </div>
+
+          {/* Rate row */}
+          <div className="text-xs text-fog/60 flex items-center justify-between px-2">
+            <span>
+              {latestQuote
+                ? <>Rate: <span className="font-mono text-fog/80">1 {fromCoin} ≈ {latestQuote.rate} {toCoin}</span></>
+                : <span className="text-fog/40">Quote to see the rate</span>}
+            </span>
+            {latestQuote && (
+              <span className="text-fog/40 text-[10px]">via {latestQuote.provider_id} · expires {new Date(latestQuote.expires_at).toLocaleTimeString()}</span>
+            )}
+          </div>
+
+          {/* Destination */}
+          <div>
+            <label className="text-xs text-fog/60 block mb-1">Receive at ({toCoin}-{toNetwork})</label>
+            <input
+              className="w-full rounded-xl bg-onyx/40 px-3 py-2 text-sm font-mono"
+              value={destAddress}
+              onChange={(e) => setDestAddress(e.target.value)}
+              placeholder={toNetwork === 'tron' ? 'T...' : toNetwork === 'bitcoin' ? 'bc1...' : toNetwork === 'liquid' ? 'lq1...' : '0x...'}
+            />
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-2 pt-1">
             <button
               type="button"
               disabled={busy === 'quote' || !fromAmount}
-              className="text-xs uppercase tracking-wide px-4 py-2 rounded-full border border-fog/30 text-fog disabled:opacity-50"
+              className="flex-1 text-xs uppercase tracking-wide px-4 py-2.5 rounded-full border border-fog/30 text-fog disabled:opacity-50 hover:border-brass/40 transition"
               onClick={onQuote}
             >
               {busy === 'quote' ? 'quoting…' : latestQuote ? 're-quote' : 'get quote'}
@@ -594,12 +717,30 @@ export default function PagcoinSwap() {
             <button
               type="button"
               disabled={busy === 'commit' || !latestQuote || !destAddress.trim()}
-              className="text-xs uppercase tracking-wide px-4 py-2 rounded-full bg-brass text-onyx font-semibold disabled:opacity-50"
+              className="flex-[2] text-xs uppercase tracking-wide px-4 py-2.5 rounded-full bg-brass text-onyx font-semibold disabled:opacity-50 hover:opacity-90 transition"
               onClick={onCommitSwap}
             >
               {busy === 'commit' ? 'committing…' : 'commit swap'}
             </button>
           </div>
+
+          {/* Pickers */}
+          <CoinPickerModal
+            open={fromPickerOpen}
+            catalog={catalog}
+            filter={pickerFilter}
+            setFilter={setPickerFilter}
+            onPick={(c, n) => { setFromCoin(c); setFromNetwork(n); setLatestQuote(null) }}
+            onClose={() => setFromPickerOpen(false)}
+          />
+          <CoinPickerModal
+            open={toPickerOpen}
+            catalog={catalog}
+            filter={pickerFilter}
+            setFilter={setPickerFilter}
+            onPick={(c, n) => { setToCoin(c); setToNetwork(n); setLatestQuote(null) }}
+            onClose={() => setToPickerOpen(false)}
+          />
         </section>
       )}
 
