@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import QRCode from 'qrcode'
 import { getPagcoinSwapConfig, pagcoinSwapProxy, setPagcoinSwapConfig } from '../api'
 import pagcoinLogo from '../assets/pagcoin-logo.png'
+import { coinIconUrl } from '../utils/coinIcons'
 import '../styles/pagcoin-swap.css'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -77,6 +78,17 @@ function coinHue(coin: string): number {
 }
 
 function CoinBadge({ coin, size = 36 }: { coin: string; size?: number }) {
+  const iconUrl = coinIconUrl(coin)
+  if (iconUrl) {
+    return (
+      <img
+        src={iconUrl}
+        alt={coin}
+        className="pswap-coin-badge pswap-coin-badge-img"
+        style={{ width: size, height: size }}
+      />
+    )
+  }
   const hue = coinHue(coin)
   const initials = coin.slice(0, 3).toUpperCase()
   return (
@@ -279,6 +291,8 @@ export default function PagcoinSwap() {
       for (const e of flat) {
         const k = `${e.coin}|${e.network}`
         if (seen.has(k)) continue
+        // Drop coins we don't have a bundled logo for — keeps the picker visually clean.
+        if (!coinIconUrl(e.coin)) continue
         seen.add(k)
         dedup.push(e)
       }

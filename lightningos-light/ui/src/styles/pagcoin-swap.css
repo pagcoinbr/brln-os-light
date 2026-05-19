@@ -57,7 +57,7 @@ html[data-theme="dark"] .pswap-root {
   --pswap-ink: #ffffff;
   --pswap-text: #ececec;
   --pswap-muted: #9a9a9a;
-  --pswap-border: #f5a623;
+  --pswap-border: #c8c8c8;
   --pswap-shadow-color: #000000;
   --pswap-shadow-hover-color: #ff9500;
   --pswap-input-bg: #1f1f1f;
@@ -354,7 +354,7 @@ html[data-theme="dark"] .pswap-root {
 .pswap-modal-item:hover { background: var(--pswap-modal-item-hover); }
 .pswap-modal-empty { padding: 24px; text-align: center; color: var(--pswap-muted); font-size: 14px; }
 
-/* Coin badge — keep the hashed-hue placeholder, ringed for contrast */
+/* Coin badge — real logo via cryptocurrency-icons, fallback is colored initials */
 .pswap-coin-badge {
   border: 2px solid var(--pswap-border);
   border-radius: 999px;
@@ -363,6 +363,14 @@ html[data-theme="dark"] .pswap-root {
   justify-content: center;
   font-weight: 700;
   color: #111111;
+}
+.pswap-coin-badge-img {
+  background: #ffffff;
+  padding: 3px;
+  object-fit: contain;
+}
+html[data-theme="dark"] .pswap-coin-badge-img {
+  background: #f4f4f4;
 }
 
 /* Rows + key/value list */
