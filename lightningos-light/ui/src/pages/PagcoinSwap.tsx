@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import QRCode from 'qrcode'
 import { getPagcoinSwapConfig, pagcoinSwapProxy, setPagcoinSwapConfig } from '../api'
+import pagcoinLogo from '../assets/pagcoin-logo.png'
+import '../styles/pagcoin-swap.css'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -11,10 +13,6 @@ type Config = {
   socks_addr: string
   tor_reachable: boolean
 }
-
-// (CreditState removed — operator key from /v1/register is now the gate,
-// rate-limited at 2 rps. The /v1/credit endpoints + per-quote allowance
-// have been retired on the gateway.)
 
 type Registration = {
   registration_id: string
@@ -72,8 +70,6 @@ type SwapState = {
   claim_token?: string
 }
 
-// Stable hue per coin so the placeholder badge gets a recognizable color.
-// Hash → 360deg, used as HSL. Looks varied without any asset shipping.
 function coinHue(coin: string): number {
   let h = 0
   for (let i = 0; i < coin.length; i++) h = (h * 31 + coin.charCodeAt(i)) >>> 0
@@ -85,17 +81,24 @@ function CoinBadge({ coin, size = 36 }: { coin: string; size?: number }) {
   const initials = coin.slice(0, 3).toUpperCase()
   return (
     <div
-      className="flex items-center justify-center rounded-full font-semibold text-onyx"
+      className="pswap-coin-badge"
       style={{
         width: size,
         height: size,
-        background: `hsl(${hue} 70% 60%)`,
+        background: `hsl(${hue} 70% 65%)`,
         fontSize: size * 0.35
       }}
     >
       {initials}
     </div>
   )
+}
+
+function pillForStatus(status: string): string {
+  if (status === 'settled' || status === 'claimed' || status === 'paid') return 'pswap-pill pswap-pill-ok'
+  if (status === 'failed' || status === 'expired') return 'pswap-pill pswap-pill-bad'
+  if (status === 'awaiting_payment') return 'pswap-pill pswap-pill-warn'
+  return 'pswap-pill pswap-pill-info'
 }
 
 function CoinPickerModal(props: {
@@ -117,44 +120,36 @@ function CoinPickerModal(props: {
       )
     : props.catalog
   return (
-    <div
-      className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-start justify-center pt-20 px-4"
-      onClick={props.onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-2xl bg-onyx shadow-xl border border-fog/10 overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="p-4 border-b border-fog/10">
+    <div className="pswap-modal-backdrop" onClick={props.onClose}>
+      <div className="pswap-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="pswap-modal-header">
           <input
             autoFocus
-            className="w-full rounded-lg bg-onyx/60 px-3 py-2 text-sm"
+            className="pswap-input"
             placeholder="Search coin or network…"
             value={props.filter}
             onChange={(e) => props.setFilter(e.target.value)}
           />
         </div>
-        <ul className="max-h-[60vh] overflow-y-auto">
+        <ul className="pswap-modal-list">
           {filtered.length === 0 && (
-            <li className="p-6 text-sm text-fog/50 text-center">No matches</li>
+            <li className="pswap-modal-empty">No matches</li>
           )}
           {filtered.map((e) => (
             <li
               key={`${e.coin}|${e.network}`}
-              className="flex items-center gap-3 p-3 hover:bg-onyx/60 cursor-pointer border-b border-fog/5 last:border-0"
+              className="pswap-modal-item"
               onClick={() => {
                 props.onPick(e.coin, e.network)
                 props.onClose()
               }}
             >
               <CoinBadge coin={e.coin} size={32} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium">{e.coin}</div>
-                <div className="text-xs text-fog/50">{e.name ?? e.coin}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="pswap-coin-name">{e.coin}</div>
+                <div className="pswap-coin-network">{e.name ?? e.coin}</div>
               </div>
-              <div className="text-xs uppercase tracking-wide px-2 py-0.5 rounded-full bg-onyx/40 text-fog/70">
-                {e.network}
-              </div>
+              <span className="pswap-pill pswap-pill-info">{e.network}</span>
             </li>
           ))}
         </ul>
@@ -164,9 +159,7 @@ function CoinPickerModal(props: {
 }
 
 // Thin wrappers around the shared api.ts helpers. These send the
-// X-CSRF-Token + credentials cookie automatically, which the raw fetch()
-// versions did not — that's why the first deploy returned "invalid csrf
-// token" on every POST.
+// X-CSRF-Token + credentials cookie automatically.
 const fetchConfig = (): Promise<Config> => getPagcoinSwapConfig() as Promise<Config>
 const saveConfig = (
   patch: Partial<{ operator_key: string; gateway_url: string }>
@@ -216,17 +209,12 @@ export default function PagcoinSwap() {
     }
   }, [])
 
-  // Fetch one /v1 endpoint via the local Tor proxy with a single retry on
-  // transient failures. The Tor circuit to the gateway onion is often cold
-  // on the first request after a page refresh — the first attempt times out
-  // or fails routing, the second usually succeeds. Treat 4xx errors as
-  // terminal (no retry), only retry on opaque proxy / Tor-side errors.
+  // Tor circuit cold-start retry — see prior history for context.
   const proxyWithRetry = useCallback(async <T,>(path: string): Promise<T> => {
     try {
       return await proxy<T>(path)
     } catch (e) {
       const msg = (e as Error).message ?? ''
-      // 4xx-shaped errors are propagated unchanged (no point retrying).
       if (/_/.test(msg) && !/tor|proxy|timeout|fetch|network/i.test(msg)) {
         throw e
       }
@@ -251,11 +239,6 @@ export default function PagcoinSwap() {
     reloadConfig()
   }, [reloadConfig])
 
-  // Once we know the operator key is configured (whether from a fresh save
-  // or persisted across a hard refresh), pull whoami + current credit. The
-  // bug pre-fix was: initial mount only ran reloadConfig, so even though
-  // operator_key_set=true the swap UI stayed gated because `credit` was
-  // null until the user clicked Save (which calls reloadAll).
   useEffect(() => {
     if (config?.operator_key_set) {
       void reloadAll()
@@ -273,7 +256,6 @@ export default function PagcoinSwap() {
       setConfig(next)
       setPendingKey('')
       setEditingKey(false)
-      // After saving, try to reach the gateway to validate.
       await reloadAll()
     } catch (e) {
       setError(String((e as Error).message))
@@ -288,13 +270,10 @@ export default function PagcoinSwap() {
     setBusy(null)
   }
 
-  // Load the provider catalog once the operator key works. Cached server-side
-  // (5 min), so re-renders that hit this are cheap.
   const loadCatalog = useCallback(async () => {
     try {
       const r = await proxy<{ providers: ProviderCatalog[] }>('/v1/coins')
       const flat = (r.providers ?? []).flatMap((p) => p.entries)
-      // Deduplicate by coin+network.
       const seen = new Set<string>()
       const dedup: CatalogEntry[] = []
       for (const e of flat) {
@@ -306,7 +285,6 @@ export default function PagcoinSwap() {
       dedup.sort((a, b) => a.coin.localeCompare(b.coin) || a.network.localeCompare(b.network))
       setCatalog(dedup)
     } catch (e) {
-      // Catalog failure isn't fatal — the user can type pair manually below.
       // eslint-disable-next-line no-console
       console.warn('catalog load failed', e)
     }
@@ -376,7 +354,6 @@ export default function PagcoinSwap() {
       })
       setActiveSwap(r)
       setLatestQuote(null)
-      // Render QR for the deposit address.
       if (r.deposit_address) {
         const dataUrl = await QRCode.toDataURL(r.deposit_address, { margin: 1, width: 240 })
         setDepositQr(dataUrl)
@@ -388,7 +365,6 @@ export default function PagcoinSwap() {
     }
   }
 
-  // Poll the active swap every 5s until terminal.
   useEffect(() => {
     if (!activeSwap?.swap_id) return
     if (['settled', 'failed', 'expired', 'refunded'].includes(activeSwap.status)) return
@@ -403,7 +379,6 @@ export default function PagcoinSwap() {
         }
       } catch (e) {
         if (cancelled) return
-        // Tor blip; back off and retry.
         swapPollRef.current = window.setTimeout(tick, 10_000)
       }
     }
@@ -414,31 +389,22 @@ export default function PagcoinSwap() {
     }
   }, [activeSwap?.swap_id, activeSwap?.status])
 
-  // Poll a pending registration until it's claimed or the invoice expires.
-  // The first GET that arrives after `paid_at` wins the claim race and
-  // receives the api_key in the response — we persist it immediately.
   const pollRegistration = useCallback(async (regId: string) => {
     const start = Date.now()
-    // Cap at the invoice TTL plus a small buffer so we eventually stop.
     const maxMs = 60 * 60 * 1000 + 30_000
     while (Date.now() - start < maxMs) {
       try {
         const next = await proxy<Registration>(`/v1/register/${regId}`)
         setRegistration(next)
         if (next.status === 'claimed' && next.api_key) {
-          // Persist the key into the local secrets env so the proxy injects
-          // it on every subsequent /v1/* call.
           const saved = await saveConfig({ operator_key: next.api_key })
           setConfig(saved)
-          // Stop showing the invoice; reload whoami + credit so the UI
-          // shifts into the "ready to swap" state.
           setRegistration(null)
           await reloadAll()
           return
         }
         if (next.status === 'expired') return
       } catch (e) {
-        // Tor blip / transient; keep polling.
         // eslint-disable-next-line no-console
         console.warn('register poll error', e)
       }
@@ -456,7 +422,6 @@ export default function PagcoinSwap() {
         body: JSON.stringify({ display_name: displayName.trim() || undefined })
       })
       setRegistration(reg)
-      // Kick off polling in the background; UI shows the bolt11 in the meantime.
       void pollRegistration(reg.registration_id)
     } catch (e) {
       setError(String((e as Error).message))
@@ -468,47 +433,48 @@ export default function PagcoinSwap() {
   const configured = config?.operator_key_set && config?.gateway_url
 
   return (
-    <div className="space-y-6 p-6">
-      <header>
-        <h1 className="text-2xl font-semibold">Pagcoin Swap</h1>
-        <p className="text-sm text-fog/60">
-          {t('pagcoinSwap.tagline', { defaultValue: 'Troque criptos via Tor. As chamadas saem do seu nó para o onion do Pagcoin; o navegador nunca toca a rede onion.' })}
-        </p>
+    <div className="pswap-root pswap-stack">
+      <header className="pswap-header">
+        <img src={pagcoinLogo} alt="Pagcoin" className="pswap-logo" />
+        <div>
+          <h1>Pagcoin Swap</h1>
+          <p className="pswap-tagline">
+            {t('pagcoinSwap.tagline', { defaultValue: 'Troque criptos via Tor. As chamadas saem do seu nó para o onion do Pagcoin; o navegador nunca toca a rede onion.' })}
+          </p>
+        </div>
       </header>
 
-      {error && (
-        <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
-          {error}
-        </div>
-      )}
+      {error && <div className="pswap-alert">{error}</div>}
 
       {/* ─── Settings card ─── */}
-      <section className="section-card space-y-4">
-        <h2 className="text-lg font-semibold">{t('pagcoinSwap.settings', { defaultValue: 'Conexão' })}</h2>
-        <div className="grid gap-3 text-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-fog/60 w-40">Tor SOCKS:</span>
-            <span className="font-mono">{config?.socks_addr || '—'}</span>
+      <section className="pswap-card pswap-stack">
+        <h2>{t('pagcoinSwap.settings', { defaultValue: 'Conexão' })}</h2>
+        <div className="pswap-stack-sm">
+          <div className="pswap-row">
+            <label>Tor SOCKS:</label>
+            <span className="pswap-mono">{config?.socks_addr || '—'}</span>
             {config && (
-              <span className={`text-xs uppercase px-2 py-0.5 rounded-full ${config.tor_reachable ? 'bg-emerald-500/20 text-emerald-200' : 'bg-red-500/20 text-red-200'}`}>
+              <span className={config.tor_reachable ? 'pswap-pill pswap-pill-ok' : 'pswap-pill pswap-pill-bad'}>
                 {config.tor_reachable ? 'reachable' : 'unreachable'}
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-fog/60 w-40">Gateway .onion:</span>
+          <div className="pswap-row">
+            <label>Gateway .onion:</label>
             <input
-              className="flex-1 rounded bg-onyx/40 px-2 py-1 font-mono text-xs"
+              className="pswap-input pswap-mono"
+              style={{ flex: 1 }}
               value={pendingURL}
               onChange={(e) => setPendingURL(e.target.value)}
               placeholder="http://...onion"
             />
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-fog/60 w-40">Operator API key:</span>
+          <div className="pswap-row">
+            <label>Operator API key:</label>
             {editingKey ? (
               <input
-                className="flex-1 rounded bg-onyx/40 px-2 py-1 font-mono text-xs"
+                className="pswap-input pswap-mono"
+                style={{ flex: 1 }}
                 type="password"
                 value={pendingKey}
                 onChange={(e) => setPendingKey(e.target.value)}
@@ -516,24 +482,20 @@ export default function PagcoinSwap() {
                 autoFocus
               />
             ) : (
-              <span className="flex-1 text-xs text-fog/60">
+              <span className="pswap-muted" style={{ flex: 1, fontSize: 13 }}>
                 {config?.operator_key_set ? '✓ configured (paste new value to replace)' : 'not set'}
               </span>
             )}
-            <button
-              type="button"
-              className="text-xs uppercase tracking-wide px-3 py-1 rounded-full bg-brass/20 text-brass border border-brass/40 hover:bg-brass/30"
-              onClick={() => setEditingKey(!editingKey)}
-            >
+            <button type="button" className="pswap-btn" onClick={() => setEditingKey(!editingKey)}>
               {editingKey ? 'cancel' : 'edit'}
             </button>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="pswap-row">
           <button
             type="button"
             disabled={busy === 'save-config'}
-            className="text-xs uppercase tracking-wide px-4 py-2 rounded-full bg-brass text-onyx font-semibold disabled:opacity-50"
+            className="pswap-btn pswap-btn-primary"
             onClick={onSaveConfig}
           >
             {busy === 'save-config' ? 'saving…' : 'save'}
@@ -541,27 +503,27 @@ export default function PagcoinSwap() {
           <button
             type="button"
             disabled={busy === 'check'}
-            className="text-xs uppercase tracking-wide px-4 py-2 rounded-full border border-fog/30 text-fog disabled:opacity-50"
+            className="pswap-btn"
             onClick={onCheckConnection}
           >
             {busy === 'check' ? 'checking…' : 'check connection'}
           </button>
         </div>
         {whoami && (
-          <div className="text-xs text-fog/60 space-y-0.5">
-            <p>connected as <span className="font-mono">{whoami.display_name}</span> (id <span className="font-mono">{whoami.operator_id.slice(0, 8)}…</span>)</p>
+          <div style={{ fontSize: 13 }} className="pswap-stack-sm">
+            <p>connected as <span className="pswap-mono"><strong>{whoami.display_name}</strong></span> (id <span className="pswap-mono">{whoami.operator_id.slice(0, 8)}…</span>)</p>
             {whoami.valid_until ? (
-              <p>
-                subscription valid until <span className="font-mono">{new Date(whoami.valid_until).toLocaleDateString()}</span>
+              <p className="pswap-muted">
+                subscription valid until <span className="pswap-mono">{new Date(whoami.valid_until).toLocaleDateString()}</span>
                 {(() => {
                   const days = Math.floor((new Date(whoami.valid_until!).getTime() - Date.now()) / 86_400_000)
-                  if (days < 0) return <span className="text-red-300 ml-1">(expired)</span>
-                  if (days < 14) return <span className="text-amber-300 ml-1">({days} days left)</span>
-                  return <span className="text-fog/40 ml-1">({days} days left)</span>
+                  if (days < 0) return <span style={{ color: 'var(--pswap-danger)', marginLeft: 6 }}>(expired)</span>
+                  if (days < 14) return <span style={{ color: 'var(--pswap-warn)', marginLeft: 6 }}>({days} days left)</span>
+                  return <span style={{ marginLeft: 6 }}>({days} days left)</span>
                 })()}
               </p>
             ) : (
-              <p className="text-fog/40">no expiry (internal operator)</p>
+              <p className="pswap-muted">no expiry (internal operator)</p>
             )}
           </div>
         )}
@@ -569,27 +531,27 @@ export default function PagcoinSwap() {
 
       {/* ─── New swap (SideShift-style) ─── */}
       {configured && whoami && !activeSwap && (
-        <section className="section-card space-y-4">
-          <h2 className="text-lg font-semibold">{t('pagcoinSwap.newSwap', { defaultValue: 'Novo swap' })}</h2>
+        <section className="pswap-card pswap-stack">
+          <h2>{t('pagcoinSwap.newSwap', { defaultValue: 'Novo swap' })}</h2>
 
           {/* SEND panel */}
-          <div className="rounded-2xl bg-onyx/40 p-4 border border-fog/5">
-            <div className="text-xs uppercase tracking-wide text-fog/50 mb-2">You send</div>
-            <div className="flex items-center gap-3">
+          <div className="pswap-card-inset">
+            <div className="pswap-coin-network" style={{ marginBottom: 10 }}>You send</div>
+            <div className="pswap-row" style={{ flexWrap: 'nowrap' }}>
               <button
                 type="button"
-                className="flex items-center gap-2 rounded-full bg-onyx/60 hover:bg-onyx/80 transition px-2 py-1 pr-3 border border-fog/10"
+                className="pswap-coin-trigger"
                 onClick={() => { setPickerFilter(''); setFromPickerOpen(true) }}
               >
                 <CoinBadge coin={fromCoin} />
-                <div className="text-left">
-                  <div className="text-sm font-semibold leading-none">{fromCoin}</div>
-                  <div className="text-[10px] uppercase tracking-wide text-fog/50">{fromNetwork}</div>
+                <div style={{ textAlign: 'left' }}>
+                  <div className="pswap-coin-name">{fromCoin}</div>
+                  <div className="pswap-coin-network">{fromNetwork}</div>
                 </div>
-                <span className="text-fog/40 ml-1">▾</span>
+                <span style={{ color: 'var(--pswap-muted)', marginLeft: 4 }}>▾</span>
               </button>
               <input
-                className="flex-1 bg-transparent text-right text-2xl font-mono outline-none placeholder-fog/30"
+                className="pswap-amount"
                 value={fromAmount}
                 onChange={(e) => { setFromAmount(e.target.value); setLatestQuote(null) }}
                 inputMode="decimal"
@@ -599,56 +561,56 @@ export default function PagcoinSwap() {
           </div>
 
           {/* Direction swap button */}
-          <div className="flex justify-center -my-2">
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: -8, marginBottom: -8 }}>
             <button
               type="button"
               aria-label="swap direction"
-              className="rounded-full bg-onyx border border-fog/20 w-10 h-10 flex items-center justify-center text-fog hover:text-brass hover:border-brass/40 transition"
+              className="pswap-direction"
               onClick={onSwapDirection}
             >
-              <span style={{ display: 'inline-block', transform: 'rotate(90deg)' }}>⇄</span>
+              ⇅
             </button>
           </div>
 
           {/* GET panel */}
-          <div className="rounded-2xl bg-onyx/40 p-4 border border-fog/5">
-            <div className="text-xs uppercase tracking-wide text-fog/50 mb-2">You get</div>
-            <div className="flex items-center gap-3">
+          <div className="pswap-card-inset">
+            <div className="pswap-coin-network" style={{ marginBottom: 10 }}>You get</div>
+            <div className="pswap-row" style={{ flexWrap: 'nowrap' }}>
               <button
                 type="button"
-                className="flex items-center gap-2 rounded-full bg-onyx/60 hover:bg-onyx/80 transition px-2 py-1 pr-3 border border-fog/10"
+                className="pswap-coin-trigger"
                 onClick={() => { setPickerFilter(''); setToPickerOpen(true) }}
               >
                 <CoinBadge coin={toCoin} />
-                <div className="text-left">
-                  <div className="text-sm font-semibold leading-none">{toCoin}</div>
-                  <div className="text-[10px] uppercase tracking-wide text-fog/50">{toNetwork}</div>
+                <div style={{ textAlign: 'left' }}>
+                  <div className="pswap-coin-name">{toCoin}</div>
+                  <div className="pswap-coin-network">{toNetwork}</div>
                 </div>
-                <span className="text-fog/40 ml-1">▾</span>
+                <span style={{ color: 'var(--pswap-muted)', marginLeft: 4 }}>▾</span>
               </button>
-              <div className="flex-1 text-right text-2xl font-mono text-fog/60">
+              <div className="pswap-amount" style={{ color: 'var(--pswap-muted)' }}>
                 {latestQuote ? latestQuote.to_amount : '—'}
               </div>
             </div>
           </div>
 
           {/* Rate row */}
-          <div className="text-xs text-fog/60 flex items-center justify-between px-2">
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '0 4px' }}>
             <span>
               {latestQuote
-                ? <>Rate: <span className="font-mono text-fog/80">1 {fromCoin} ≈ {latestQuote.rate} {toCoin}</span></>
-                : <span className="text-fog/40">Quote to see the rate</span>}
+                ? <>Rate: <span className="pswap-mono"><strong>1 {fromCoin} ≈ {latestQuote.rate} {toCoin}</strong></span></>
+                : <span className="pswap-muted">Quote to see the rate</span>}
             </span>
             {latestQuote && (
-              <span className="text-fog/40 text-[10px]">via {latestQuote.provider_id} · expires {new Date(latestQuote.expires_at).toLocaleTimeString()}</span>
+              <span className="pswap-muted" style={{ fontSize: 11 }}>via {latestQuote.provider_id} · expires {new Date(latestQuote.expires_at).toLocaleTimeString()}</span>
             )}
           </div>
 
           {/* Destination */}
           <div>
-            <label className="text-xs text-fog/60 block mb-1">Receive at ({toCoin}-{toNetwork})</label>
+            <label className="pswap-coin-network" style={{ display: 'block', marginBottom: 6 }}>Receive at ({toCoin}-{toNetwork})</label>
             <input
-              className="w-full rounded-xl bg-onyx/40 px-3 py-2 text-sm font-mono"
+              className="pswap-input pswap-mono"
               value={destAddress}
               onChange={(e) => setDestAddress(e.target.value)}
               placeholder={toNetwork === 'tron' ? 'T...' : toNetwork === 'bitcoin' ? 'bc1...' : toNetwork === 'liquid' ? 'lq1...' : '0x...'}
@@ -656,11 +618,12 @@ export default function PagcoinSwap() {
           </div>
 
           {/* Action buttons */}
-          <div className="flex gap-2 pt-1">
+          <div className="pswap-row">
             <button
               type="button"
               disabled={busy === 'quote' || !fromAmount}
-              className="flex-1 text-xs uppercase tracking-wide px-4 py-2.5 rounded-full border border-fog/30 text-fog disabled:opacity-50 hover:border-brass/40 transition"
+              className="pswap-btn"
+              style={{ flex: 1 }}
               onClick={onQuote}
             >
               {busy === 'quote' ? 'quoting…' : latestQuote ? 're-quote' : 'get quote'}
@@ -668,14 +631,14 @@ export default function PagcoinSwap() {
             <button
               type="button"
               disabled={busy === 'commit' || !latestQuote || !destAddress.trim()}
-              className="flex-[2] text-xs uppercase tracking-wide px-4 py-2.5 rounded-full bg-brass text-onyx font-semibold disabled:opacity-50 hover:opacity-90 transition"
+              className="pswap-btn pswap-btn-primary"
+              style={{ flex: 2 }}
               onClick={onCommitSwap}
             >
               {busy === 'commit' ? 'committing…' : 'commit swap'}
             </button>
           </div>
 
-          {/* Pickers */}
           <CoinPickerModal
             open={fromPickerOpen}
             catalog={catalog}
@@ -697,41 +660,41 @@ export default function PagcoinSwap() {
 
       {/* ─── Active swap ─── */}
       {activeSwap && (
-        <section className="section-card space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">{t('pagcoinSwap.activeSwap', { defaultValue: 'Swap em andamento' })}</h2>
-            <span className="text-xs uppercase tracking-wide px-2 py-0.5 rounded-full bg-onyx/40 text-fog/80">{activeSwap.status}</span>
+        <section className="pswap-card pswap-stack-sm">
+          <div className="pswap-row" style={{ justifyContent: 'space-between' }}>
+            <h2>{t('pagcoinSwap.activeSwap', { defaultValue: 'Swap em andamento' })}</h2>
+            <span className={pillForStatus(activeSwap.status)}>{activeSwap.status}</span>
           </div>
-          <div className="text-sm space-y-1">
-            <div className="flex justify-between"><span className="text-fog/60">Send:</span><span className="font-mono">{activeSwap.from.amount} {activeSwap.from.coin} ({activeSwap.from.network})</span></div>
-            <div className="flex justify-between"><span className="text-fog/60">Receive:</span><span className="font-mono">{activeSwap.to.amount ?? '…'} {activeSwap.to.coin} ({activeSwap.to.network})</span></div>
+          <div className="pswap-stack-sm">
+            <div className="pswap-kv"><span className="pswap-kv-label">Send:</span><span className="pswap-kv-value">{activeSwap.from.amount} {activeSwap.from.coin} ({activeSwap.from.network})</span></div>
+            <div className="pswap-kv"><span className="pswap-kv-label">Receive:</span><span className="pswap-kv-value">{activeSwap.to.amount ?? '…'} {activeSwap.to.coin} ({activeSwap.to.network})</span></div>
             {activeSwap.to.address && (
-              <div className="flex justify-between gap-2"><span className="text-fog/60">To address:</span><span className="font-mono text-xs break-all text-right">{activeSwap.to.address}</span></div>
+              <div className="pswap-kv"><span className="pswap-kv-label">To address:</span><span className="pswap-kv-value">{activeSwap.to.address}</span></div>
             )}
           </div>
           {activeSwap.deposit_address && (
-            <div className="space-y-2">
-              <p className="text-xs text-fog/60">Send the deposit to:</p>
-              {depositQr && <img src={depositQr} alt="deposit address QR" className="bg-white rounded p-2 mx-auto" />}
+            <div className="pswap-stack-sm">
+              <p className="pswap-muted" style={{ fontSize: 13 }}>Send the deposit to:</p>
+              {depositQr && <img src={depositQr} alt="deposit address QR" className="pswap-qr" />}
               <input
                 readOnly
-                className="w-full rounded bg-onyx/40 px-2 py-1 font-mono text-xs"
+                className="pswap-input pswap-mono"
                 value={activeSwap.deposit_address}
                 onClick={(e) => (e.currentTarget as HTMLInputElement).select()}
               />
               {activeSwap.deposit_memo && (
-                <p className="text-xs text-amber-200">Memo required: <span className="font-mono">{activeSwap.deposit_memo}</span></p>
+                <p style={{ fontSize: 13, color: 'var(--pswap-warn)' }}>Memo required: <span className="pswap-mono"><strong>{activeSwap.deposit_memo}</strong></span></p>
               )}
-              <p className="text-xs text-fog/50">Expires at {new Date(activeSwap.expires_at).toLocaleString()}</p>
+              <p className="pswap-muted" style={{ fontSize: 12 }}>Expires at {new Date(activeSwap.expires_at).toLocaleString()}</p>
             </div>
           )}
           {activeSwap.fail_reason && (
-            <p className="text-xs text-red-200">{activeSwap.fail_reason}</p>
+            <p style={{ fontSize: 13, color: 'var(--pswap-danger)' }}>{activeSwap.fail_reason}</p>
           )}
           {['settled', 'failed', 'expired', 'refunded'].includes(activeSwap.status) && (
             <button
               type="button"
-              className="text-xs uppercase tracking-wide px-4 py-2 rounded-full border border-fog/30 text-fog"
+              className="pswap-btn"
               onClick={() => { setActiveSwap(null); setDepositQr(null) }}
             >
               new swap
@@ -742,17 +705,17 @@ export default function PagcoinSwap() {
 
       {/* ─── Self-service registration ─── */}
       {!config?.operator_key_set && (
-        <section className="section-card space-y-4">
-          <h2 className="text-lg font-semibold">{t('pagcoinSwap.register', { defaultValue: 'Registrar operador' })}</h2>
-          <p className="text-sm text-fog/60">
+        <section className="pswap-card pswap-stack">
+          <h2>{t('pagcoinSwap.register', { defaultValue: 'Registrar operador' })}</h2>
+          <p className="pswap-muted" style={{ fontSize: 14 }}>
             {t('pagcoinSwap.registerHint', {
               defaultValue: 'Pague 1.000 sats via Lightning para criar uma chave de operator válida por 6 meses. A chave é salva automaticamente neste nó assim que o pagamento confirma.'
             })}
           </p>
           {!registration && (
-            <div className="space-y-3">
+            <div className="pswap-stack-sm">
               <input
-                className="w-full rounded bg-onyx/40 px-2 py-1 text-sm"
+                className="pswap-input"
                 placeholder="display name (opcional)"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
@@ -760,43 +723,42 @@ export default function PagcoinSwap() {
               <button
                 type="button"
                 disabled={busy === 'register' || !config?.tor_reachable}
-                className="text-xs uppercase tracking-wide px-4 py-2 rounded-full bg-brass text-onyx font-semibold disabled:opacity-50"
+                className="pswap-btn pswap-btn-primary"
                 onClick={onRegister}
               >
                 {busy === 'register' ? 'requesting…' : `register (1,000 sats)`}
               </button>
               {!config?.tor_reachable && (
-                <p className="text-xs text-amber-300">Tor não está acessível em {config?.socks_addr}. Verifique antes de registrar.</p>
+                <p style={{ fontSize: 13, color: 'var(--pswap-warn)' }}>Tor não está acessível em {config?.socks_addr}. Verifique antes de registrar.</p>
               )}
             </div>
           )}
           {registration && (
-            <div className="space-y-3">
-              <div>
-                <span className="text-xs uppercase tracking-wide px-2 py-0.5 rounded-full bg-onyx/40 text-fog/80">{registration.status}</span>
-                <span className="ml-3 text-fog/60 text-sm">
-                  {registration.amount_sats} sats
-                </span>
+            <div className="pswap-stack-sm">
+              <div className="pswap-row">
+                <span className={pillForStatus(registration.status)}>{registration.status}</span>
+                <span className="pswap-muted" style={{ fontSize: 14 }}>{registration.amount_sats} sats</span>
               </div>
               {registration.status === 'awaiting_payment' && (
                 <>
                   <textarea
                     readOnly
-                    className="w-full rounded bg-onyx/40 px-2 py-1 font-mono text-[10px] break-all"
+                    className="pswap-input pswap-mono"
+                    style={{ fontSize: 11, wordBreak: 'break-all', resize: 'vertical' }}
                     rows={4}
                     value={registration.bolt11}
                     onClick={(e) => (e.currentTarget as HTMLTextAreaElement).select()}
                   />
-                  <p className="text-xs text-fog/50">
+                  <p className="pswap-muted" style={{ fontSize: 12 }}>
                     Aguardando pagamento… expira em {new Date(registration.invoice_expires_at).toLocaleString()}
                   </p>
                 </>
               )}
               {registration.status === 'paid' && (
-                <p className="text-xs text-emerald-200">Pago — emitindo a chave de operator…</p>
+                <p style={{ fontSize: 13, color: 'var(--pswap-ok)' }}>Pago — emitindo a chave de operator…</p>
               )}
               {registration.status === 'expired' && (
-                <p className="text-xs text-red-200">Invoice expirou sem pagamento. Tente novamente.</p>
+                <p style={{ fontSize: 13, color: 'var(--pswap-danger)' }}>Invoice expirou sem pagamento. Tente novamente.</p>
               )}
             </div>
           )}
@@ -804,7 +766,7 @@ export default function PagcoinSwap() {
       )}
 
       {!configured && config?.operator_key_set === false && (
-        <p className="text-sm text-fog/60">
+        <p className="pswap-muted" style={{ fontSize: 14 }}>
           {t('pagcoinSwap.notConfigured', { defaultValue: 'Configure o gateway .onion e registre um operator acima para começar.' })}
         </p>
       )}

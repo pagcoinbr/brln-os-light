@@ -1,0 +1,403 @@
+/*
+ * Scoped neobrutalist style for the PagcoinSwap page only.
+ * Mirrors the info.pagcoin.org aesthetic (white panels, thick borders,
+ * hard offset shadows, bitcoin-orange accents).
+ * Follows the dashboard's html[data-theme="light"|"dark"] attribute so
+ * the page tracks the system theme while keeping the pagcoin character.
+ * All selectors are scoped under .pswap-root.
+ */
+
+.pswap-root {
+  /* Light is the default. The html[data-theme="dark"] block below
+     overrides these for dark mode. */
+  --pswap-bg: #e8e8e8;
+  --pswap-panel: #f7f7f7;
+  --pswap-panel-inset: #ffffff;
+  --pswap-ink: #111111;
+  --pswap-text: #1f1f1f;
+  --pswap-muted: #555555;
+  --pswap-border: #000000;
+  --pswap-shadow-color: #444444;
+  --pswap-shadow-hover-color: #000000;
+  --pswap-input-bg: #ffffff;
+  --pswap-input-readonly-bg: #efefef;
+  --pswap-pill-bg: #ffffff;
+  --pswap-divider: #d6d6d6;
+  --pswap-btn-hover-bg: #333333;
+  --pswap-btn-hover-text: #ffffff;
+  --pswap-btn-active-bg: #111111;
+  --pswap-modal-item-hover: #ffe2b3;
+  --pswap-accent: #f5a623;
+  --pswap-accent-dark: #ff9500;
+  --pswap-danger: #c0392b;
+  --pswap-ok: #1b7a3a;
+  --pswap-warn: #b8860b;
+  --pswap-alert-bg: #ffd4ce;
+  --pswap-alert-text: #5a1a12;
+  --pswap-ok-bg: #d4f5dd;
+  --pswap-warn-bg: #fff1c4;
+  --pswap-info-bg: #ffe2b3;
+  --pswap-info-text: #8a4b00;
+
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: var(--pswap-text);
+  background: var(--pswap-bg);
+  min-height: 100%;
+  padding: 24px;
+  border-radius: 12px;
+  position: relative;
+  isolation: isolate;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+html[data-theme="dark"] .pswap-root {
+  --pswap-bg: #1c1c1c;
+  --pswap-panel: #2a2a2a;
+  --pswap-panel-inset: #353535;
+  --pswap-ink: #ffffff;
+  --pswap-text: #ececec;
+  --pswap-muted: #9a9a9a;
+  --pswap-border: #f5a623;
+  --pswap-shadow-color: #000000;
+  --pswap-shadow-hover-color: #ff9500;
+  --pswap-input-bg: #1f1f1f;
+  --pswap-input-readonly-bg: #161616;
+  --pswap-pill-bg: #1f1f1f;
+  --pswap-divider: #3a3a3a;
+  --pswap-btn-hover-bg: #f5a623;
+  --pswap-btn-hover-text: #111111;
+  --pswap-btn-active-bg: #ff9500;
+  --pswap-modal-item-hover: rgba(245, 166, 35, 0.18);
+  --pswap-danger: #ff6b5e;
+  --pswap-ok: #6ee7a3;
+  --pswap-warn: #ffd166;
+  --pswap-alert-bg: rgba(192, 57, 43, 0.18);
+  --pswap-alert-text: #ffb3a8;
+  --pswap-ok-bg: rgba(27, 122, 58, 0.22);
+  --pswap-warn-bg: rgba(184, 134, 11, 0.22);
+  --pswap-info-bg: rgba(245, 166, 35, 0.18);
+  --pswap-info-text: #ffcf80;
+}
+
+/* Shimmering bitcoin-orange strip at the top of the page */
+.pswap-root::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(
+    90deg,
+    var(--pswap-accent-dark) 0%,
+    var(--pswap-accent) 50%,
+    var(--pswap-accent-dark) 100%
+  );
+  animation: pswap-shimmer 3s ease-in-out infinite;
+}
+
+@keyframes pswap-shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.pswap-root h1,
+.pswap-root h2,
+.pswap-root h3 {
+  color: var(--pswap-ink);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.pswap-root h1 { font-size: 32px; }
+.pswap-root h2 { font-size: 22px; }
+.pswap-root h3 { font-size: 18px; }
+
+.pswap-root .pswap-tagline {
+  color: var(--pswap-muted);
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.pswap-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.pswap-logo {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--pswap-border);
+  box-shadow: 4px 4px 0 0 var(--pswap-shadow-color);
+  background: #fff;
+  flex-shrink: 0;
+  transition: transform 0.6s ease, box-shadow 0.3s ease;
+}
+
+.pswap-logo:hover {
+  transform: rotate(360deg);
+  box-shadow: 4px 4px 0 0 var(--pswap-accent-dark);
+}
+
+.pswap-root .pswap-muted { color: var(--pswap-muted); }
+.pswap-root .pswap-mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+
+/* Panels */
+.pswap-card {
+  background: var(--pswap-panel);
+  border: 2px solid var(--pswap-border);
+  border-radius: 12px;
+  box-shadow: 8px 8px 0 0 var(--pswap-shadow-color);
+  padding: 24px;
+}
+
+.pswap-card-inset {
+  background: var(--pswap-panel-inset);
+  border: 2px solid var(--pswap-border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+/* Inputs */
+.pswap-input {
+  background: var(--pswap-input-bg);
+  border: 2px solid var(--pswap-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--pswap-text);
+  outline: none;
+  width: 100%;
+  font-family: inherit;
+}
+.pswap-input.pswap-mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+.pswap-input:focus { box-shadow: 0 0 0 3px rgba(255, 149, 0, 0.35); }
+.pswap-input[readonly] { background: var(--pswap-input-readonly-bg); }
+
+.pswap-amount {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 28px;
+  text-align: right;
+  color: var(--pswap-ink);
+  width: 100%;
+}
+
+/* Buttons */
+.pswap-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--pswap-panel-inset);
+  border: 2px solid var(--pswap-border);
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--pswap-ink);
+  box-shadow: 8px 8px 0 0 var(--pswap-shadow-color);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, color 0.15s ease;
+  font-family: inherit;
+}
+.pswap-btn:hover:not(:disabled) {
+  background: var(--pswap-btn-hover-bg);
+  color: var(--pswap-btn-hover-text);
+  box-shadow: 4px 4px 0 0 var(--pswap-shadow-hover-color);
+  transform: translate(2px, 2px);
+}
+.pswap-btn:active:not(:disabled) {
+  background: var(--pswap-btn-active-bg);
+  color: var(--pswap-btn-hover-text);
+  box-shadow: none;
+  transform: translate(8px, 8px);
+}
+.pswap-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.pswap-btn-primary {
+  background: var(--pswap-accent);
+  color: #111111;
+}
+.pswap-btn-primary:hover:not(:disabled) {
+  background: var(--pswap-accent-dark);
+  color: #111111;
+}
+
+.pswap-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border: 2px solid var(--pswap-border);
+  border-radius: 999px;
+  background: var(--pswap-pill-bg);
+  color: var(--pswap-ink);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.pswap-pill-ok    { background: var(--pswap-ok-bg);    color: var(--pswap-ok); }
+.pswap-pill-warn  { background: var(--pswap-warn-bg);  color: var(--pswap-warn); }
+.pswap-pill-bad   { background: var(--pswap-alert-bg); color: var(--pswap-danger); }
+.pswap-pill-info  { background: var(--pswap-info-bg);  color: var(--pswap-info-text); }
+
+/* Coin picker trigger */
+.pswap-coin-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px 6px 6px;
+  border: 2px solid var(--pswap-border);
+  border-radius: 999px;
+  background: var(--pswap-panel-inset);
+  color: var(--pswap-ink);
+  cursor: pointer;
+  box-shadow: 4px 4px 0 0 var(--pswap-shadow-color);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  font-family: inherit;
+}
+.pswap-coin-trigger:hover {
+  box-shadow: 2px 2px 0 0 var(--pswap-shadow-hover-color);
+  transform: translate(2px, 2px);
+}
+
+.pswap-coin-name { font-weight: 700; font-size: 14px; color: var(--pswap-ink); line-height: 1; }
+.pswap-coin-network { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--pswap-muted); }
+
+/* Swap direction button */
+.pswap-direction {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 2px solid var(--pswap-border);
+  background: var(--pswap-accent);
+  color: #111111;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 4px 4px 0 0 var(--pswap-shadow-color);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  font-family: inherit;
+}
+.pswap-direction:hover {
+  box-shadow: 2px 2px 0 0 var(--pswap-shadow-hover-color);
+  transform: translate(2px, 2px) rotate(180deg);
+}
+
+/* Alert */
+.pswap-alert {
+  border: 2px solid var(--pswap-danger);
+  background: var(--pswap-alert-bg);
+  color: var(--pswap-alert-text);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  box-shadow: 4px 4px 0 0 var(--pswap-danger);
+}
+
+/* Modal (coin picker) */
+.pswap-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 80px 16px 16px;
+  z-index: 1000;
+}
+.pswap-modal {
+  background: var(--pswap-panel);
+  border: 2px solid var(--pswap-border);
+  border-radius: 12px;
+  box-shadow: 8px 8px 0 0 var(--pswap-shadow-color);
+  width: 100%;
+  max-width: 480px;
+  overflow: hidden;
+  color: var(--pswap-text);
+}
+.pswap-modal-header {
+  padding: 14px;
+  border-bottom: 2px solid var(--pswap-border);
+  background: var(--pswap-panel-inset);
+}
+.pswap-modal-list {
+  max-height: 60vh;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pswap-modal-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--pswap-divider);
+  cursor: pointer;
+  transition: background 0.1s ease;
+  color: var(--pswap-text);
+}
+.pswap-modal-item:last-child { border-bottom: 0; }
+.pswap-modal-item:hover { background: var(--pswap-modal-item-hover); }
+.pswap-modal-empty { padding: 24px; text-align: center; color: var(--pswap-muted); font-size: 14px; }
+
+/* Coin badge — keep the hashed-hue placeholder, ringed for contrast */
+.pswap-coin-badge {
+  border: 2px solid var(--pswap-border);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #111111;
+}
+
+/* Rows + key/value list */
+.pswap-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--pswap-divider);
+  font-size: 14px;
+}
+.pswap-kv:last-child { border-bottom: 0; }
+.pswap-kv-label { color: var(--pswap-muted); }
+.pswap-kv-value { font-family: "SF Mono", Menlo, Consolas, monospace; color: var(--pswap-ink); text-align: right; word-break: break-all; }
+
+.pswap-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pswap-row > label { color: var(--pswap-muted); font-size: 13px; min-width: 140px; }
+
+.pswap-stack { display: flex; flex-direction: column; gap: 16px; }
+.pswap-stack-sm { display: flex; flex-direction: column; gap: 8px; }
+
+.pswap-qr {
+  /* QR codes need to stay light regardless of theme — scanners read them. */
+  background: #ffffff;
+  border: 2px solid var(--pswap-border);
+  border-radius: 8px;
+  padding: 8px;
+  display: block;
+  margin: 0 auto;
+}
+
+@media (max-width: 640px) {
+  .pswap-root { padding: 16px; }
+  .pswap-card { padding: 18px; }
+  .pswap-logo { width: 56px; height: 56px; }
+  .pswap-row > label { min-width: 0; flex-basis: 100%; }
+}
