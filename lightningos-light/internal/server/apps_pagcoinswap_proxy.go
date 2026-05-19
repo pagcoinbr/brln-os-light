@@ -31,9 +31,21 @@ import (
 const (
 	pagcoinSwapOperatorKeyEnv = "PAGCOINSWAP_OPERATOR_KEY"
 	pagcoinSwapSocksAddrEnv   = "PAGCOINSWAP_SOCKS_ADDR"
+	pagcoinSwapTorClientEnv   = "PAGCOINSWAP_TOR_CLIENT_KEY"
 	pagcoinSwapDefaultSocks   = "127.0.0.1:9050"
 
 	pagcoinSwapProxyPrefix = "/api/apps/pagcoinswap/proxy/"
+
+	// Public "guest" x25519 client key. Tor uses the SOCKS5 username field
+	// as the v3-onion client-auth key (RFC 1929 username = base32 privkey,
+	// password = any non-empty string). This key is INTENTIONALLY shipped
+	// publicly with brln-os-light; it's anti-enumeration only. The real
+	// authentication is the per-operator API key (Bearer header), which is
+	// minted via POST /v1/register (open, paid via 1000-sat LN invoice).
+	//
+	// Tor format expected by SOCKS5 auth: base32 of the 32-byte private
+	// key, no padding, lowercase. NOT the `descriptor:x25519:` prefix.
+	pagcoinSwapGuestTorClientKey = "2c6df7ctgthahw42roxdlq7amvgl4prmqapfexes4ubf5fichfka"
 )
 
 func pagcoinSwapOperatorKey() string {
@@ -50,6 +62,15 @@ func pagcoinSwapSocksAddr() string {
 	return pagcoinSwapDefaultSocks
 }
 
+// Override the shipped guest key via env if the operator (or a future v2
+// per-operator-key flow) wants a different Tor v3 client key.
+func pagcoinSwapTorClientKey() string {
+	if v := strings.TrimSpace(envOrFileValue(pagcoinSwapTorClientEnv)); v != "" {
+		return v
+	}
+	return pagcoinSwapGuestTorClientKey
+}
+
 // envOrFileValue checks the process env first, then the shared secrets env
 // file. Returns "" if neither has a non-empty value.
 func envOrFileValue(key string) string {
@@ -63,12 +84,19 @@ func envOrFileValue(key string) string {
 	return v
 }
 
-// Tor-aware HTTP client. SOCKS5 dialing fails fast at request time if Tor
-// isn't reachable — there is no "graceful degrade" to clearnet here, and
-// that's intentional: this code should not silently leak operator calls.
+// Tor-aware HTTP client. The SOCKS5 username carries the v3-onion client
+// auth key (Tor's documented mechanism), so we don't need to write a file
+// into the system tor's ClientOnionAuthDir — which is good, because the
+// manager runs as the `lightningos` user and can't write there anyway.
+//
+// SOCKS5 dialing fails fast at request time if Tor isn't reachable — there
+// is no "graceful degrade" to clearnet here, and that's intentional: this
+// code should not silently leak operator calls.
 func pagcoinSwapHTTPClient() (*http.Client, error) {
 	socks := pagcoinSwapSocksAddr()
-	dialer, err := proxy.SOCKS5("tcp", socks, nil, proxy.Direct)
+	clientKey := pagcoinSwapTorClientKey()
+	auth := &proxy.Auth{User: clientKey, Password: "x"}
+	dialer, err := proxy.SOCKS5("tcp", socks, auth, proxy.Direct)
 	if err != nil {
 		return nil, fmt.Errorf("init socks5 dialer (%s): %w", socks, err)
 	}
@@ -135,11 +163,15 @@ func (s *Server) handlePagcoinSwapProxy(w http.ResponseWriter, r *http.Request) 
 			upstreamReq.Header.Set(k, v)
 		}
 	}
-	// Inject operator bearer key server-side. If it's missing, surface a
-	// clean 412 rather than a generic 401 from the upstream.
+	// Inject operator bearer key server-side. /v1/register and
+	// /v1/register/:id are the bootstrap path — they're hit BEFORE the
+	// operator has a key, so we must not require one for them. Everything
+	// else demands a key; surface a clean 412 rather than a generic 401
+	// from the upstream.
+	isRegister := strings.HasPrefix(rest, "v1/register")
 	if key := pagcoinSwapOperatorKey(); key != "" {
 		upstreamReq.Header.Set("Authorization", "Bearer "+key)
-	} else {
+	} else if !isRegister {
 		writeJSON(w, http.StatusPreconditionFailed, map[string]string{
 			"error": "operator_key_not_set",
 			"hint":  "POST /api/apps/pagcoinswap/config with operator_key",

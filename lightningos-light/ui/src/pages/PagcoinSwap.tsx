@@ -24,6 +24,19 @@ type CreditState = {
   quotes_remaining: number
 }
 
+type Registration = {
+  registration_id: string
+  status: string
+  amount_sats: number
+  bolt11: string
+  payment_hash: string
+  invoice_expires_at: string
+  paid_at: string | null
+  claimed_at: string | null
+  operator_id?: string
+  api_key?: string
+}
+
 async function fetchConfig(): Promise<Config> {
   const r = await fetch('/api/apps/pagcoinswap/config')
   if (!r.ok) throw new Error(`config ${r.status}`)
@@ -68,6 +81,8 @@ export default function PagcoinSwap() {
   const [pendingURL, setPendingURL] = useState('')
   const [whoami, setWhoami] = useState<{ operator_id: string; display_name: string } | null>(null)
   const [credit, setCredit] = useState<CreditState | null>(null)
+  const [registration, setRegistration] = useState<Registration | null>(null)
+  const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
@@ -144,6 +159,57 @@ export default function PagcoinSwap() {
     setBusy('check')
     await reloadAll()
     setBusy(null)
+  }
+
+  // Poll a pending registration until it's claimed or the invoice expires.
+  // The first GET that arrives after `paid_at` wins the claim race and
+  // receives the api_key in the response — we persist it immediately.
+  const pollRegistration = useCallback(async (regId: string) => {
+    const start = Date.now()
+    // Cap at the invoice TTL plus a small buffer so we eventually stop.
+    const maxMs = 60 * 60 * 1000 + 30_000
+    while (Date.now() - start < maxMs) {
+      try {
+        const next = await proxy<Registration>(`/v1/register/${regId}`)
+        setRegistration(next)
+        if (next.status === 'claimed' && next.api_key) {
+          // Persist the key into the local secrets env so the proxy injects
+          // it on every subsequent /v1/* call.
+          const saved = await saveConfig({ operator_key: next.api_key })
+          setConfig(saved)
+          // Stop showing the invoice; reload whoami + credit so the UI
+          // shifts into the "ready to swap" state.
+          setRegistration(null)
+          await reloadAll()
+          return
+        }
+        if (next.status === 'expired') return
+      } catch (e) {
+        // Tor blip / transient; keep polling.
+        // eslint-disable-next-line no-console
+        console.warn('register poll error', e)
+      }
+      await new Promise((r) => setTimeout(r, 5_000))
+    }
+  }, [reloadAll])
+
+  const onRegister = async () => {
+    setBusy('register')
+    setError(null)
+    try {
+      const reg = await proxy<Registration>('/v1/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: displayName.trim() || undefined })
+      })
+      setRegistration(reg)
+      // Kick off polling in the background; UI shows the bolt11 in the meantime.
+      void pollRegistration(reg.registration_id)
+    } catch (e) {
+      setError(String((e as Error).message))
+    } finally {
+      setBusy(null)
+    }
   }
 
   const configured = config?.operator_key_set && config?.gateway_url
@@ -281,9 +347,72 @@ export default function PagcoinSwap() {
         </section>
       )}
 
-      {!configured && (
+      {/* ─── Self-service registration ─── */}
+      {!config?.operator_key_set && (
+        <section className="section-card space-y-4">
+          <h2 className="text-lg font-semibold">{t('pagcoinSwap.register', { defaultValue: 'Registrar operador' })}</h2>
+          <p className="text-sm text-fog/60">
+            {t('pagcoinSwap.registerHint', {
+              defaultValue: 'Pague 1.000 sats via Lightning para criar uma chave de operator. A chave é salva automaticamente neste nó assim que o pagamento confirma.'
+            })}
+          </p>
+          {!registration && (
+            <div className="space-y-3">
+              <input
+                className="w-full rounded bg-onyx/40 px-2 py-1 text-sm"
+                placeholder="display name (opcional)"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+              />
+              <button
+                type="button"
+                disabled={busy === 'register' || !config?.tor_reachable}
+                className="text-xs uppercase tracking-wide px-4 py-2 rounded-full bg-brass text-onyx font-semibold disabled:opacity-50"
+                onClick={onRegister}
+              >
+                {busy === 'register' ? 'requesting…' : `register (1,000 sats)`}
+              </button>
+              {!config?.tor_reachable && (
+                <p className="text-xs text-amber-300">Tor não está acessível em {config?.socks_addr}. Verifique antes de registrar.</p>
+              )}
+            </div>
+          )}
+          {registration && (
+            <div className="space-y-3">
+              <div>
+                <span className="text-xs uppercase tracking-wide px-2 py-0.5 rounded-full bg-onyx/40 text-fog/80">{registration.status}</span>
+                <span className="ml-3 text-fog/60 text-sm">
+                  {registration.amount_sats} sats
+                </span>
+              </div>
+              {registration.status === 'awaiting_payment' && (
+                <>
+                  <textarea
+                    readOnly
+                    className="w-full rounded bg-onyx/40 px-2 py-1 font-mono text-[10px] break-all"
+                    rows={4}
+                    value={registration.bolt11}
+                    onClick={(e) => (e.currentTarget as HTMLTextAreaElement).select()}
+                  />
+                  <p className="text-xs text-fog/50">
+                    Aguardando pagamento… expira em {new Date(registration.invoice_expires_at).toLocaleString()}
+                  </p>
+                </>
+              )}
+              {registration.status === 'paid' && (
+                <p className="text-xs text-emerald-200">Pago — emitindo a chave de operator…</p>
+              )}
+              {registration.status === 'expired' && (
+                <p className="text-xs text-red-200">Invoice expirou sem pagamento. Tente novamente.</p>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      {!configured && config?.operator_key_set === false && (
         <p className="text-sm text-fog/60">
-          {t('pagcoinSwap.notConfigured', { defaultValue: 'Configure o gateway .onion e cole sua chave de operator acima para começar.' })}
+          {t('pagcoinSwap.notConfigured', { defaultValue: 'Configure o gateway .onion e registre um operator acima para começar.' })}
         </p>
       )}
     </div>
